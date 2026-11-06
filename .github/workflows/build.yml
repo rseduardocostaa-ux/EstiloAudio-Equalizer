@@ -20,6 +20,8 @@ jobs:
 
       - name: Preparar o Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Preparar o Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
