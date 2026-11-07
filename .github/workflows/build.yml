@@ -28,6 +28,9 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Preparar a chave de assinatura
+        run: base64 -d app/debug.keystore.b64 > app/debug.keystore
+
       - name: Compilar o APK (debug)
         run: gradle assembleDebug --no-daemon --stacktrace
 
