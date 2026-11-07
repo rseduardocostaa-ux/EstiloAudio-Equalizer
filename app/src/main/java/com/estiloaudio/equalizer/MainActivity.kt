@@ -3,6 +3,7 @@ package com.estiloaudio.equalizer
 import android.Manifest
 import android.app.Activity
 import android.app.Dialog
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -14,10 +15,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.service.notification.NotificationListenerService
 import android.text.InputFilter
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -71,6 +75,8 @@ class MainActivity : Activity() {
 
     private lateinit var grMeter: GrMeterView
     private lateinit var peakMeter: PeakMeterView
+    private lateinit var miniPlayer: MiniPlayer
+    private lateinit var listenerStatus: TextView
     private lateinit var compCurve: CompCurveView
     private lateinit var mbSwitch: M3Switch
     private lateinit var singleBox: LinearLayout
@@ -120,6 +126,24 @@ class MainActivity : Activity() {
 
     private var syncing = false
     private var curTab = 0
+    private var touching = false
+    private var lastTouch = 0L
+
+    private val nowPlayingListener: () -> Unit = { onNowPlayingChanged() }
+
+    /** Layout Spotify: quando a cor da capa muda, refaz a tela com a nova cor (sem interromper um toque). */
+    private val themeRunnable = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed) return
+            if (!ThemePrefs.spotify(this@MainActivity)) return
+            if (ThemePrefs.spotifyBase(this@MainActivity) == C.SP_BASE) return
+            if (touching || SystemClock.uptimeMillis() - lastTouch < 1500L) {
+                handler.postDelayed(this, 700L)
+                return
+            }
+            recreate()
+        }
+    }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -129,6 +153,7 @@ class MainActivity : Activity() {
             compCurve.feed(EqState.inDb, EqState.vizOk && EqState.running)
             peakMeter.feed(EqState.peakDb, EqState.peakState, EqState.vizOk && EqState.running)
             statusView.text = EqState.status()
+            miniPlayer.tick()
             val s = EqState.s
             val off = !s.master && !s.auto
             if (headerOff != off) {
@@ -148,7 +173,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         EqState.ensure(this)
         ThemePrefs.apply(this)
-        window.setBackgroundDrawable(ColorDrawable(C.BG))
+        window.setBackgroundDrawable(C.backgroundDrawable())
 
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
@@ -165,6 +190,10 @@ class MainActivity : Activity() {
         selectTab(savedInstanceState?.getInt("tab", 0) ?: 0)
         val settingsScroll = savedInstanceState?.getInt("settingsScroll", 0) ?: 0
         if (settingsScroll > 0) pages[2].post { pages[2].scrollTo(0, settingsScroll) }
+        val eqScroll = savedInstanceState?.getInt("eqScroll", 0) ?: 0
+        if (eqScroll > 0) pages[0].post { pages[0].scrollTo(0, eqScroll) }
+        val compScroll = savedInstanceState?.getInt("compScroll", 0) ?: 0
+        if (compScroll > 0) pages[1].post { pages[1].scrollTo(0, compScroll) }
 
         askPermissionsOnce()
         syncService()
@@ -174,6 +203,17 @@ class MainActivity : Activity() {
         super.onSaveInstanceState(outState)
         outState.putInt("tab", curTab)
         outState.putInt("settingsScroll", pages[2].scrollY)
+        outState.putInt("eqScroll", pages[0].scrollY)
+        outState.putInt("compScroll", pages[1].scrollY)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> touching = true
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touching = false
+        }
+        lastTouch = SystemClock.uptimeMillis()
+        return super.dispatchTouchEvent(ev)
     }
 
     /** Ícones claros ou escuros na barra de status e na de navegação, conforme o tema. */
@@ -197,6 +237,8 @@ class MainActivity : Activity() {
         EqState.uiVisible = true
         EqState.notifyChanged()
         refreshPermsUi()
+        NowPlaying.addListener(nowPlayingListener)
+        refreshNowPlaying()
         handler.removeCallbacks(ticker)
         handler.post(ticker)
     }
@@ -205,6 +247,8 @@ class MainActivity : Activity() {
         super.onPause()
         EqState.uiVisible = false
         EqState.notifyChanged()
+        NowPlaying.removeListener(nowPlayingListener)
+        handler.removeCallbacks(themeRunnable)
         handler.removeCallbacks(ticker)
     }
 
@@ -213,7 +257,7 @@ class MainActivity : Activity() {
     private fun buildUi(): View {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(C.BG)
+        root.background = C.backgroundDrawable()
         root.setPadding(dpi(6f), 0, dpi(6f), 0)
 
         // cabeçalho: cartão fino com a logo, o nome e o status
@@ -505,6 +549,13 @@ class MainActivity : Activity() {
         pmlp.marginStart = dpi(4f)
         pmlp.marginEnd = dpi(4f)
         col.addView(peakMeter, pmlp)
+
+        // cartão fino do Spotify: capa, música, play/pause e próxima
+        miniPlayer = MiniPlayer(this)
+        miniPlayer.onNeedAccess = { openListenerSettings() }
+        val mplp = LinearLayout.LayoutParams(-1, -2)
+        mplp.bottomMargin = dpi(8f)
+        col.addView(miniPlayer, mplp)
 
         // editor da banda selecionada
         val bCard = card(this)
@@ -1343,6 +1394,7 @@ class MainActivity : Activity() {
 
     /** Salva a escolha e recria a tela para repintar tudo com a nova paleta. */
     private fun applyTheme(accent: Int? = null, dark: Boolean? = null) {
+        ThemePrefs.saveSpotify(this, false)
         if (accent != null) ThemePrefs.saveAccent(this, accent)
         if (dark != null) ThemePrefs.saveDark(this, dark)
         recreate()
@@ -1377,16 +1429,31 @@ class MainActivity : Activity() {
         val a = card(this)
         a.addView(sectionTitle(this, "Aparência", 0f))
 
+        // Layout Spotify: fundo preto com degradê da cor da capa
+        val spSwitch = newSwitch()
+        spSwitch.isChecked = ThemePrefs.spotify(this)
+        spSwitch.setOnCheckedChangeListener { _, on ->
+            ThemePrefs.saveSpotify(this, on)
+            recreate()
+        }
+        switchRow(
+            a, "Layout Spotify",
+            "Fundo preto com degradê da cor da capa. O app usa a cor da música que está tocando. " +
+                "Escolher o fundo ou a cor abaixo desliga o Layout Spotify.",
+            spSwitch
+        )
+        a.addView(View(this), LinearLayout.LayoutParams(-1, dpi(10f)))
+
         // claro / escuro
         a.addView(bodyText(this, "Fundo do app", 15f, C.INK))
         val modeRow = LinearLayout(this)
         modeRow.orientation = LinearLayout.HORIZONTAL
         val lightBtn = pill(this, "Claro")
         val darkBtn = pill(this, "Escuro")
-        stylePill(lightBtn, !C.DARK)
-        stylePill(darkBtn, C.DARK)
-        lightBtn.setOnClickListener { if (C.DARK) applyTheme(dark = false) }
-        darkBtn.setOnClickListener { if (!C.DARK) applyTheme(dark = true) }
+        stylePill(lightBtn, !C.DARK && !C.SPOTIFY)
+        stylePill(darkBtn, C.DARK && !C.SPOTIFY)
+        lightBtn.setOnClickListener { if (C.DARK || C.SPOTIFY) applyTheme(dark = false) }
+        darkBtn.setOnClickListener { if (!C.DARK || C.SPOTIFY) applyTheme(dark = true) }
         val l1 = LinearLayout.LayoutParams(0, -2, 1f)
         l1.marginEnd = dpi(4f)
         val l2 = LinearLayout.LayoutParams(0, -2, 1f)
@@ -1527,6 +1594,15 @@ class MainActivity : Activity() {
         micStatus = permRow(pCard, "Microfone (só para o espectro)", "") {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 12)
         }
+        listenerStatus = permRow(pCard, "Acesso à música (Spotify)", "") { openListenerSettings() }
+        pCard.addView(
+            bodyText(
+                this,
+                "Mostra a música no cartão e dá a cor ao Layout Spotify. No Android 13 ou mais novo, se a opção " +
+                    "aparecer em cinza: Ajustes do app › ⋮ › Permitir configurações restritas.",
+                12f
+            ).also { it.setPadding(0, 0, 0, dpi(6f)) }
+        )
         val appSettings = pill(this, "Abrir ajustes do app")
         appSettings.setOnClickListener {
             startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
@@ -1671,6 +1747,53 @@ class MainActivity : Activity() {
 
     private fun hasMic(): Boolean =
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasListenerAccess(): Boolean = try {
+        getSystemService(android.app.NotificationManager::class.java)
+            .isNotificationListenerAccessGranted(ComponentName(this, MediaListener::class.java))
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun openListenerSettings() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            Toast.makeText(
+                this,
+                "Se a opção estiver cinza: Ajustes do app › ⋮ › Permitir configurações restritas",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Não foi possível abrir os ajustes de acesso", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Atualiza o cartão do Spotify e, se for o caso, pede ao sistema para reconectar o leitor de música. */
+    private fun refreshNowPlaying() {
+        val ok = NowPlaying.connected || hasListenerAccess()
+        if (ok && !NowPlaying.connected) {
+            try {
+                NotificationListenerService.requestRebind(ComponentName(this, MediaListener::class.java))
+            } catch (_: Exception) { }
+        }
+        miniPlayer.refresh(ok)
+        listenerStatus.text = if (ok) "Liberado" else "Necessário para o cartão da música e o Layout Spotify"
+        checkSpotifyTheme()
+    }
+
+    private fun onNowPlayingChanged() {
+        miniPlayer.refresh(NowPlaying.connected || hasListenerAccess())
+        checkSpotifyTheme()
+    }
+
+    private fun checkSpotifyTheme() {
+        if (!ThemePrefs.spotify(this)) return
+        if (ThemePrefs.spotifyBase(this) == C.SP_BASE) return
+        handler.removeCallbacks(themeRunnable)
+        handler.postDelayed(themeRunnable, 500L)
+    }
 
     private fun refreshPermsUi() {
         notifStatus.text = if (hasNotif()) "Concedida" else "Necessária para a notificação fixa"

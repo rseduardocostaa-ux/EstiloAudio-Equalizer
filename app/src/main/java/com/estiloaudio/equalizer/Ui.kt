@@ -3,6 +3,8 @@ package com.estiloaudio.equalizer
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -23,6 +25,11 @@ import kotlin.math.roundToInt
 object C {
     var DARK = false
     var ACCENT = 0xFFB9FC00.toInt()
+
+    /** Layout Spotify ligado: fundo em degradê (preto em cima, cor da capa embaixo). */
+    var SPOTIFY = false
+    var SP_BASE = 0                          // cor-base da capa usada para montar esta paleta
+    var GRAD_END = 0xFF000000.toInt()        // cor do degradê na parte de baixo
 
     var BG = 0xFFFBFDF2.toInt()
     var CARD = 0xFFF1F5E2.toInt()
@@ -60,6 +67,8 @@ object C {
 
     /** Recalcula toda a paleta. Chame antes de montar a interface. */
     fun apply(accent: Int, dark: Boolean) {
+        SPOTIFY = false
+        SP_BASE = 0
         val a = accent or 0xFF000000.toInt()
         DARK = dark
         ACCENT = a
@@ -111,6 +120,44 @@ object C {
             GRID = 0x38A9B8CF
             GLOW = 0
         }
+    }
+
+    /**
+     * Layout Spotify: tema escuro com a cor da capa nos destaques e um degradê de preto até essa cor no fundo.
+     * [base] é a cor dominante da capa (cinza se a capa não tem cor).
+     */
+    fun applySpotify(base: Int) {
+        val b = base or 0xFF000000.toInt()
+        val hv = FloatArray(3)
+        Color.colorToHSV(b, hv)
+        val gray = hv[1] < 0.15f
+        val accent = if (gray) hsv(0f, 0f, 0.92f) else hsv(hv[0], hv[1].coerceIn(0.45f, 0.95f), maxOf(hv[2], 0.85f))
+        val end = if (gray) hsv(0f, 0f, 0.26f) else hsv(hv[0], hv[1].coerceIn(0.55f, 1f), hv[2].coerceIn(0.32f, 0.55f))
+
+        apply(accent, true)
+        SPOTIFY = true
+        SP_BASE = base
+        GRAD_END = end
+
+        // superfícies translúcidas deixam o degradê aparecer; o que é misturado em código (interruptor) fica opaco
+        val black = 0xFF000000.toInt()
+        BG = mixColor(black, end, 0.22f)      // caixas de diálogo e campos de texto
+        CARD = 0x1FFFFFFF
+        CARD2 = 0x33FFFFFF
+        PANEL = 0x17FFFFFF
+        TRACK = 0x33FFFFFF
+        LINE = 0x40FFFFFF
+        TICK = 0x40FFFFFF
+    }
+
+    /** Fundo da tela: cor lisa, ou o degradê do Layout Spotify. */
+    fun backgroundDrawable(): Drawable {
+        if (!SPOTIFY) return ColorDrawable(BG)
+        val black = 0xFF000000.toInt()
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(black, black, mixColor(black, GRAD_END, 0.45f), GRAD_END)
+        )
     }
 }
 

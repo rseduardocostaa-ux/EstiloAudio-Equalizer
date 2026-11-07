@@ -8,6 +8,8 @@ object ThemePrefs {
     private const val FILE = "estilo_audio_ui"
     private const val K_ACCENT = "accent"
     private const val K_DARK = "dark"
+    private const val K_SPOTIFY = "spotify_layout"
+    private const val K_COVER = "cover_base"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -23,9 +25,29 @@ object ThemePrefs {
         prefs(ctx).edit().putBoolean(K_DARK, dark).apply()
     }
 
+    /** Layout Spotify: fundo preto com degradê e a cor da capa da música que está tocando. */
+    fun spotify(ctx: Context): Boolean = prefs(ctx).getBoolean(K_SPOTIFY, false)
+
+    fun saveSpotify(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(K_SPOTIFY, on).apply()
+    }
+
+    /** Última cor dominante de capa vista (0 = nenhuma ainda). */
+    fun cover(ctx: Context): Int = prefs(ctx).getInt(K_COVER, 0)
+
+    fun saveCover(ctx: Context, color: Int) {
+        prefs(ctx).edit().putInt(K_COVER, color or 0xFF000000.toInt()).apply()
+    }
+
+    /** Cor-base do Layout Spotify: a última capa vista ou, se não houve nenhuma, a cor principal escolhida. */
+    fun spotifyBase(ctx: Context): Int {
+        val c = cover(ctx)
+        return if (c == 0) accent(ctx) else c
+    }
+
     /** Carrega as preferências e recalcula a paleta [C]. Deve rodar antes de montar a interface. */
     fun apply(ctx: Context) {
-        C.apply(accent(ctx), dark(ctx))
+        if (spotify(ctx)) C.applySpotify(spotifyBase(ctx)) else C.apply(accent(ctx), dark(ctx))
     }
 
     fun toHex(color: Int): String = String.format("#%06X", color and 0xFFFFFF)

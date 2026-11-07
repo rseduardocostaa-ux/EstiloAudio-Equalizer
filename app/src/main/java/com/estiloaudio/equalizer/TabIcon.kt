@@ -55,7 +55,7 @@ class TabIcon(ctx: Context, private val kind: Int) : View(ctx) {
             }
             1 -> {
                 c.drawCircle(cx, cy, dpf(11f), p)
-                p.color = if (active) C.CARD2 else C.CARD
+                p.color = if (C.SPOTIFY) 0xFF000000.toInt() else if (active) C.CARD2 else C.CARD
                 p.style = Paint.Style.STROKE
                 p.strokeWidth = dpf(2.2f)
                 p.strokeCap = Paint.Cap.ROUND
