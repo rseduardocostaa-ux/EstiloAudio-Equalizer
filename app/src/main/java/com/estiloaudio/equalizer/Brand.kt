@@ -96,7 +96,7 @@ class LogoView(
     private val tmp = Path()
 
     init {
-        sp.color = 0x594A6600
+        sp.color = C.GLOW
         bp.colorFilter = PorterDuffColorFilter(C.PRI, PorterDuff.Mode.SRC_IN)
         layerPaint.colorFilter = gray
         layerPaint.alpha = 128
@@ -262,7 +262,7 @@ class HeaderBackground(private val ctx: Context) : Drawable() {
         val ry = ctx.dpf(44f)
         val sh = RadialGradient(
             0f, 0f, rx,
-            intArrayOf(0x40B9FC00, 0x00B9FC00), floatArrayOf(0f, 0.7f),
+            intArrayOf(withAlpha(C.PRI, 0x40), withAlpha(C.PRI, 0x00)), floatArrayOf(0f, 0.7f),
             Shader.TileMode.CLAMP
         )
         m.reset()

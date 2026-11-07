@@ -15,26 +15,37 @@ import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.roundToInt
 
-/** Paleta clara estilo Material (fundo verde-claro, cartões tonais, verde-limão #B9FC00 como cor de destaque). */
+/**
+ * Paleta do app. As cores de superfície, texto e destaque são calculadas a partir da cor principal
+ * escolhida pelo usuário e do modo claro/escuro (veja [apply]). Os valores iniciais são o tema
+ * claro com verde-limão #B9FC00 (o visual original).
+ */
 object C {
-    const val BG = 0xFFFBFDF2.toInt()
-    const val CARD = 0xFFF1F5E2.toInt()
-    const val CARD2 = 0xFFE3EDC6.toInt()
-    const val INK = 0xFF1B1D16.toInt()
-    const val SUB = 0xFF5B6050.toInt()
-    const val LINE = 0xFFC8CFB6.toInt()
-    const val PRI = 0xFFB9FC00.toInt()        // destaque (preenchimentos: alças, arcos, interruptor)
-    const val PRI_DK = 0xFF4A6600.toInt()     // verde-escuro: textos e ícones do destaque sobre fundo claro
-    const val ON_PRI = 0xFF1B2600.toInt()     // texto/ícone sobre o verde-limão
-    const val PANEL = 0xFFEEF2E4.toInt()
-    const val SLATE = 0xFF4F5D70.toInt()
-    const val TRACK = 0xFFDDE5CB.toInt()
-    const val TICK = 0xFFCDD6BB.toInt()
-    const val ZERO = 0xFF787D6C.toInt()
-    const val OFFBG = 0xFFE5E9DB.toInt()
-    const val TABOFF = 0xFF45493C.toInt()
-    const val LEDOFF = 0xFFE5E9DB.toInt()
+    var DARK = false
+    var ACCENT = 0xFFB9FC00.toInt()
 
+    var BG = 0xFFFBFDF2.toInt()
+    var CARD = 0xFFF1F5E2.toInt()
+    var CARD2 = 0xFFE3EDC6.toInt()
+    var INK = 0xFF1B1D16.toInt()
+    var SUB = 0xFF5B6050.toInt()
+    var LINE = 0xFFC8CFB6.toInt()
+    var PRI = 0xFFB9FC00.toInt()        // destaque (preenchimentos: alças, arcos, interruptor)
+    var PRI_DK = 0xFF4A6600.toInt()     // textos e ícones do destaque (escuro no tema claro, claro no escuro)
+    var ON_PRI = 0xFF1B2600.toInt()     // texto/ícone sobre a cor de destaque
+    var PANEL = 0xFFEEF2E4.toInt()
+    var SLATE = 0xFF4F5D70.toInt()      // linha da curva do EQ
+    var GRID = 0x384F5D70               // grade do gráfico
+    var TRACK = 0xFFDDE5CB.toInt()
+    var TICK = 0xFFCDD6BB.toInt()
+    var ZERO = 0xFF787D6C.toInt()
+    var OFFBG = 0xFFE5E9DB.toInt()
+    var TABOFF = 0xFF45493C.toInt()
+    var LEDOFF = 0xFFE5E9DB.toInt()
+    var SPEC = 0xFF8DB600.toInt()       // barras do espectro
+    var GLOW = 0x594A6600               // sombra suave do logo e do título
+
+    // cores de significado (dB, medidor): não mudam com o tema
     const val ACC = 0xFF00E676.toInt()     // verde (medidor e sliders)
     const val CYAN = 0xFF26C6DA.toInt()
     const val ORANGE = 0xFFFF9100.toInt()
@@ -43,6 +54,64 @@ object C {
     const val SOFTRED = 0xFFFF5252.toInt()
     const val WARN = ORANGE
     const val HOT = RED
+
+    private fun hsv(h: Float, s: Float, v: Float): Int =
+        Color.HSVToColor(floatArrayOf(h, s.coerceIn(0f, 1f), v.coerceIn(0f, 1f)))
+
+    /** Recalcula toda a paleta. Chame antes de montar a interface. */
+    fun apply(accent: Int, dark: Boolean) {
+        val a = accent or 0xFF000000.toInt()
+        DARK = dark
+        ACCENT = a
+        val hv = FloatArray(3)
+        Color.colorToHSV(a, hv)
+        val h = hv[0]
+        val sat = hv[1]
+        val av = hv[2]
+
+        PRI = a
+        ON_PRI = if (isLightColor(a)) hsv(h, 0.9f * sat, 0.15f) else 0xFFFFFFFF.toInt()
+
+        if (!dark) {
+            BG = hsv(h, 0.04f * sat, 0.99f)
+            CARD = hsv(h, 0.08f * sat, 0.96f)
+            CARD2 = hsv(h, 0.17f * sat, 0.93f)
+            PANEL = hsv(h, 0.06f * sat, 0.95f)
+            TRACK = hsv(h, 0.11f * sat, 0.90f)
+            LINE = hsv(h, 0.10f * sat, 0.81f)
+            TICK = hsv(h, 0.13f * sat, 0.84f)
+            OFFBG = hsv(h, 0.06f * sat, 0.91f)
+            LEDOFF = OFFBG
+            INK = hsv(h, 0.15f * sat, 0.11f)
+            SUB = hsv(h, 0.17f * sat, 0.38f)
+            ZERO = hsv(h, 0.12f * sat, 0.49f)
+            TABOFF = hsv(h, 0.15f * sat, 0.29f)
+            PRI_DK = hsv(h, sat, minOf(av, 0.40f))
+            SPEC = hsv(h, sat, av * 0.72f)
+            SLATE = 0xFF4F5D70.toInt()
+            GRID = 0x384F5D70
+            GLOW = withAlpha(PRI_DK, 0x59)
+        } else {
+            BG = hsv(h, 0.22f * sat, 0.07f)
+            CARD = hsv(h, 0.28f * sat, 0.13f)
+            CARD2 = hsv(h, 0.36f * sat, 0.22f)
+            PANEL = hsv(h, 0.26f * sat, 0.10f)
+            TRACK = hsv(h, 0.26f * sat, 0.21f)
+            LINE = hsv(h, 0.22f * sat, 0.30f)
+            TICK = hsv(h, 0.20f * sat, 0.30f)
+            OFFBG = hsv(h, 0.24f * sat, 0.18f)
+            LEDOFF = OFFBG
+            INK = hsv(h, 0.06f * sat, 0.93f)
+            SUB = hsv(h, 0.10f * sat, 0.68f)
+            ZERO = hsv(h, 0.12f * sat, 0.58f)
+            TABOFF = hsv(h, 0.10f * sat, 0.70f)
+            PRI_DK = hsv(h, 0.6f * sat, 1f)
+            SPEC = a
+            SLATE = 0xFFA9B8CF.toInt()
+            GRID = 0x38A9B8CF
+            GLOW = 0
+        }
+    }
 }
 
 /** Fonte "medium" (peso 500) do Material. */
@@ -59,6 +128,12 @@ fun View.spf(v: Float): Float = context.spf(v)
 
 fun fmtDb(v: Float): String =
     if (abs(v) < 0.05f) "0" else String.format(Locale.US, "%+.1f", v)
+
+fun fmtFreq(f: Float): String = when {
+    f >= 10000f -> String.format(Locale.US, "%.1f kHz", f / 1000f)
+    f >= 1000f -> String.format(Locale.US, "%.2f kHz", f / 1000f)
+    else -> String.format(Locale.US, "%.0f Hz", f)
+}
 
 /** Posição horizontal (escala logarítmica, 20 Hz a 20 kHz) usada pela curva e pelo espectro. */
 fun plotX(f: Float, l: Float, r: Float): Float = l + (r - l) * (ln(f / 20f) / ln(1000f))
@@ -77,6 +152,16 @@ fun dbColor(v: Float): Int = when {
     v < 0f -> mixColor(C.ACC, C.CYAN, -v / 12f)
     v < 6f -> mixColor(C.ACC, C.YELLOW, v / 6f)
     else -> mixColor(C.YELLOW, C.SOFTRED, (v - 6f) / 6f)
+}
+
+/** true se a cor é clara o bastante para pedir texto escuro por cima (luminância relativa, WCAG). */
+fun isLightColor(c: Int): Boolean {
+    fun lin(v: Int): Float {
+        val x = v / 255f
+        return if (x <= 0.03928f) x / 12.92f else Math.pow(((x + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
+    }
+    val l = 0.2126f * lin(Color.red(c)) + 0.7152f * lin(Color.green(c)) + 0.0722f * lin(Color.blue(c))
+    return l > 0.19f
 }
 
 fun withAlpha(color: Int, alpha: Int): Int = (color and 0x00FFFFFF) or (alpha shl 24)
