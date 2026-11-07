@@ -85,6 +85,15 @@ class MainActivity : Activity() {
     private lateinit var mbThrKnob: KnobView
     private lateinit var mbGainKnob: KnobView
     private var selBand = 0
+    private lateinit var graphPanel: FrameLayout
+    private lateinit var graphLp: LinearLayout.LayoutParams
+    private lateinit var slidersPanel: FrameLayout
+    private lateinit var slidersRow: LinearLayout
+    private lateinit var modeBtns: List<TextView>
+    private var preSlider: LedSlider? = null
+    private var sliderBands: List<ParamBand> = emptyList()
+    private val sliderViews = ArrayList<LedSlider>()
+    private var sliderMode = false
     private lateinit var lowCutSwitch: M3Switch
     private lateinit var highCutSwitch: M3Switch
     private lateinit var lowCutBox: LinearLayout
@@ -462,8 +471,38 @@ class MainActivity : Activity() {
         prlp.bottomMargin = dpi(6f)
         col.addView(presetRow, prlp)
 
+        // alternar entre editar pelo gráfico ou por sliders (os dois editam as mesmas bandas)
+        val modeRow = LinearLayout(this)
+        modeRow.orientation = LinearLayout.HORIZONTAL
+        modeBtns = listOf("Gráfico", "Sliders").mapIndexed { i, n ->
+            val p = pill(this, n)
+            p.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            p.setPadding(dpi(8f), dpi(8f), dpi(8f), dpi(8f))
+            p.setOnClickListener { setSliderMode(i == 1) }
+            val lp = LinearLayout.LayoutParams(0, -2, 1f)
+            lp.marginStart = if (i == 0) 0 else dpi(6f)
+            modeRow.addView(p, lp)
+            p
+        }
+        val mrlp = LinearLayout.LayoutParams(-1, -2)
+        mrlp.bottomMargin = dpi(6f)
+        col.addView(modeRow, mrlp)
+
+        // painel de sliders: Preamp + uma faixa por banda (em ordem de frequência)
+        slidersPanel = FrameLayout(this)
+        slidersPanel.background = rounded(C.PANEL, 16f, this)
+        slidersRow = LinearLayout(this)
+        slidersRow.orientation = LinearLayout.HORIZONTAL
+        slidersRow.setPadding(dpi(6f), dpi(6f), dpi(6f), dpi(4f))
+        slidersPanel.addView(slidersRow, FrameLayout.LayoutParams(-1, -1))
+        val splp = LinearLayout.LayoutParams(-1, dpi(300f))
+        splp.bottomMargin = dpi(8f)
+        slidersPanel.visibility = View.GONE
+        col.addView(slidersPanel, splp)
+
         // gráfico: espectro (barras) + curva e pontos por cima (arraste os pontos)
         val panel = FrameLayout(this)
+        graphPanel = panel
         panel.background = rounded(C.PANEL, 16f, this)
         panel.clipToOutline = true
         spectrum = SpectrumView(this)
@@ -475,6 +514,7 @@ class MainActivity : Activity() {
         curve.onAdd = { f, g -> addBand(f, g) }
         val plp = LinearLayout.LayoutParams(-1, dpi(260f))
         plp.bottomMargin = dpi(8f)
+        graphLp = plp
         col.addView(panel, plp)
 
         // medidor de pico de saída (estimado) com aviso de clipping
@@ -840,6 +880,91 @@ class MainActivity : Activity() {
         if (!::presetBtn.isInitialized) return
         val name = Presets.current(this, EqState.s)?.name ?: "Personalizado"
         presetBtn.text = "Preset: $name  \u25BE"
+        syncSliders()
+    }
+
+    // ----- Modo sliders
+
+    private fun setSliderMode(on: Boolean) {
+        sliderMode = on
+        try { getSharedPreferences("ui", MODE_PRIVATE).edit().putBoolean("sliders", on).apply() } catch (_: Exception) { }
+        applyMode()
+    }
+
+    private fun applyMode() {
+        if (!::slidersPanel.isInitialized) return
+        slidersPanel.visibility = if (sliderMode) View.VISIBLE else View.GONE
+        graphLp.height = dpi(if (sliderMode) 150f else 260f)
+        graphPanel.layoutParams = graphLp
+        for (k in modeBtns.indices) stylePill(modeBtns[k], (k == 1) == sliderMode)
+        syncSliders()
+    }
+
+    private fun shortFreq(f: Float): String =
+        if (f >= 1000f) {
+            val k = f / 1000f
+            if (Math.abs(k - Math.round(k)) < 0.05f) "${Math.round(k)}K" else String.format(Locale.US, "%.1fK", k)
+        } else String.format(Locale.US, "%.0f", f)
+
+    /** Deixa os sliders iguais às bandas: só atualiza valores e rótulos, ou recria se as bandas mudaram. */
+    private fun syncSliders() {
+        if (!sliderMode || !::slidersRow.isInitialized) return
+        val s = EqState.s
+        val list = s.bands.sortedBy { it.freq }
+        val same = sliderBands.size == list.size && sliderViews.size == list.size &&
+            list.indices.all { sliderBands[it] === list[it] }
+        if (!same) {
+            slidersRow.removeAllViews()
+            sliderViews.clear()
+            val dm = resources.displayMetrics
+            val avail = dm.widthPixels - dpi(12f) - dpi(12f) - dpi(14f)
+            val n = list.size + 1
+            val w = maxOf(dpi(14f), avail / n)
+
+            val ps = LedSlider(this, "Preamp")
+            ps.onChange = { v ->
+                EqState.update { it.preamp = v }
+                preampKnob.value = v
+                updatePresetLabel()
+                updateAutoPre()
+            }
+            preSlider = ps
+            slidersRow.addView(ps, LinearLayout.LayoutParams(w, -1))
+            val sep = View(this)
+            sep.setBackgroundColor(C.LINE)
+            val seplp = LinearLayout.LayoutParams(dpi(1f), -1)
+            seplp.topMargin = dpi(10f)
+            seplp.bottomMargin = dpi(10f)
+            slidersRow.addView(sep, seplp)
+
+            for (b in list) {
+                val sl = LedSlider(this, shortFreq(b.freq))
+                sl.onChange = { v ->
+                    val idx = EqState.s.bands.indexOf(b)
+                    EqState.update { b.gain = v }
+                    if (idx >= 0 && curve.selected != idx) {
+                        curve.selected = idx
+                        refreshBandEditor()
+                    } else if (idx >= 0) {
+                        bandGainKnob.value = v
+                        updateBandTitle()
+                    }
+                    curve.invalidate()
+                    updatePresetLabel()
+                    updateAutoPre()
+                }
+                sliderViews.add(sl)
+                slidersRow.addView(sl, LinearLayout.LayoutParams(w, -1))
+            }
+            sliderBands = list
+        }
+        preSlider?.let { if (it.value != s.preamp) it.value = s.preamp }
+        for (i in list.indices) {
+            val sl = sliderViews[i]
+            val g = list[i].gain
+            if (sl.value != g) sl.value = g
+            sl.label = shortFreq(list[i].freq)
+        }
     }
 
     /** Janela com cantos arredondados no padrão do app; devolve a janela e a caixa de conteúdo. */
@@ -1489,6 +1614,8 @@ class MainActivity : Activity() {
         autoSwitch.isChecked = s.auto
         globalSwitch.isChecked = s.global
         syncing = false
+        sliderMode = try { getSharedPreferences("ui", MODE_PRIVATE).getBoolean("sliders", false) } catch (_: Exception) { false }
+        applyMode()
         refreshMbUi()
         curve.invalidate()
         refreshBandEditor()

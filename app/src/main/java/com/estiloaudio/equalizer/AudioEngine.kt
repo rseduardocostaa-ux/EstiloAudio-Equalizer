@@ -253,7 +253,7 @@ class AudioEngine {
         EqState.peakDb = est
         EqState.peakState = when {
             est > 0f && !s.limOn -> 2          // passaria de 0 dBFS sem limiter: clipping
-            s.limOn && est > s.limThr -> 1     // o limiter está segurando o pico
+            s.limOn && est > s.limThr + 2f -> 1   // o limiter está segurando o pico com folga (a medida é estimada)
             else -> 0
         }
 

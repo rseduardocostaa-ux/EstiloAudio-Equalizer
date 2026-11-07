@@ -14,7 +14,15 @@ import kotlin.math.roundToInt
  * Slider vertical de -12 a +12 dB: trilho verde-claro, linha colorida do zero até a alça
  * (muda de cor com o valor) e alça redonda roxa. Toque duplo zera.
  */
-class LedSlider(ctx: Context, private val label: String, private val highlight: Boolean = false) : View(ctx) {
+class LedSlider(ctx: Context, label0: String, private val highlight: Boolean = false) : View(ctx) {
+
+    var label: String = label0
+        set(v) {
+            if (field != v) {
+                field = v
+                invalidate()
+            }
+        }
 
     private val lo = -12f
     private val hi = 12f
@@ -60,7 +68,7 @@ class LedSlider(ctx: Context, private val label: String, private val highlight: 
         p.strokeWidth = dpf(1f)
         for (db in -12..12 step 3) {
             val y = yOf(db.toFloat())
-            val half = if (db == 0) dpf(10f) else dpf(7f)
+            val half = minOf(if (db == 0) dpf(10f) else dpf(7f), w / 2f - dpf(0.5f))
             p.color = if (db == 0) C.ZERO else C.TICK
             c.drawLine(cx - half, y, cx + half, y, p)
         }
@@ -81,7 +89,7 @@ class LedSlider(ctx: Context, private val label: String, private val highlight: 
 
         // alça redonda verde-limão (com contorno verde-escuro), com sombra suave
         val hy = yOf(value)
-        val r = dpf(11f)
+        val r = minOf(dpf(11f), w / 2f - dpf(1f))
         p.style = Paint.Style.FILL
         p.color = 0x14000000
         c.drawCircle(cx, hy + dpf(1f), r + dpf(3f), p)
@@ -99,13 +107,14 @@ class LedSlider(ctx: Context, private val label: String, private val highlight: 
 
         // textos
         tp.typeface = FONT_MEDIUM
-        tp.textSize = spf(if (highlight) 11f else 12f)
+        val narrow = w < dpf(30f)
+        tp.textSize = spf(if (narrow) 9f else if (highlight) 11f else 12f)
         tp.color = C.INK
         c.drawText(label, cx, h - dpf(26f), tp)
         tp.typeface = android.graphics.Typeface.DEFAULT
-        tp.textSize = spf(11f)
+        tp.textSize = spf(if (narrow) 8.5f else 11f)
         tp.color = C.SUB
-        c.drawText(String.format(Locale.US, "%.1f", value), cx, h - dpf(9f), tp)
+        c.drawText(if (narrow) String.format(Locale.US, "%.0f", value) else String.format(Locale.US, "%.1f", value), cx, h - dpf(9f), tp)
     }
 
     private fun setFromY(y: Float) {
