@@ -89,11 +89,10 @@ class MainActivity : Activity() {
     private lateinit var graphLp: LinearLayout.LayoutParams
     private lateinit var slidersPanel: FrameLayout
     private lateinit var slidersRow: LinearLayout
-    private lateinit var modeBtns: List<TextView>
     private var preSlider: LedSlider? = null
     private var sliderBands: List<ParamBand> = emptyList()
     private val sliderViews = ArrayList<LedSlider>()
-    private var sliderMode = false
+    private var sliderMode = true   // sliders em cima, gráfico embaixo (fixo)
     private lateinit var lowCutSwitch: M3Switch
     private lateinit var highCutSwitch: M3Switch
     private lateinit var lowCutBox: LinearLayout
@@ -471,23 +470,6 @@ class MainActivity : Activity() {
         prlp.bottomMargin = dpi(6f)
         col.addView(presetRow, prlp)
 
-        // alternar entre editar pelo gráfico ou por sliders (os dois editam as mesmas bandas)
-        val modeRow = LinearLayout(this)
-        modeRow.orientation = LinearLayout.HORIZONTAL
-        modeBtns = listOf("Gráfico", "Sliders").mapIndexed { i, n ->
-            val p = pill(this, n)
-            p.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            p.setPadding(dpi(8f), dpi(8f), dpi(8f), dpi(8f))
-            p.setOnClickListener { setSliderMode(i == 1) }
-            val lp = LinearLayout.LayoutParams(0, -2, 1f)
-            lp.marginStart = if (i == 0) 0 else dpi(6f)
-            modeRow.addView(p, lp)
-            p
-        }
-        val mrlp = LinearLayout.LayoutParams(-1, -2)
-        mrlp.bottomMargin = dpi(6f)
-        col.addView(modeRow, mrlp)
-
         // painel de sliders: Preamp + uma faixa por banda (em ordem de frequência)
         slidersPanel = FrameLayout(this)
         slidersPanel.background = rounded(C.PANEL, 16f, this)
@@ -497,7 +479,6 @@ class MainActivity : Activity() {
         slidersPanel.addView(slidersRow, FrameLayout.LayoutParams(-1, -1))
         val splp = LinearLayout.LayoutParams(-1, dpi(300f))
         splp.bottomMargin = dpi(8f)
-        slidersPanel.visibility = View.GONE
         col.addView(slidersPanel, splp)
 
         // gráfico: espectro (barras) + curva e pontos por cima (arraste os pontos)
@@ -512,7 +493,7 @@ class MainActivity : Activity() {
         curve.onSelect = { refreshBandEditor() }
         curve.onEdit = { bandEdited() }
         curve.onAdd = { f, g -> addBand(f, g) }
-        val plp = LinearLayout.LayoutParams(-1, dpi(260f))
+        val plp = LinearLayout.LayoutParams(-1, dpi(150f))
         plp.bottomMargin = dpi(8f)
         graphLp = plp
         col.addView(panel, plp)
@@ -587,11 +568,11 @@ class MainActivity : Activity() {
         bandControls.addView(weightRow(this, freqKnob, bandGainKnob, qKnob))
         bCard.addView(bandControls)
 
-        bandHint = bodyText(this, "Nenhuma banda. Toque em \"+ Banda\" ou toque duas vezes no gráfico para adicionar.", 13f)
+        bandHint = bodyText(this, "Nenhuma banda. Toque em \"+ Banda\" para adicionar.", 13f)
         bandHint.setPadding(0, dpi(10f), 0, 0)
         bCard.addView(bandHint)
         bCard.addView(
-            bodyText(this, "Arraste os pontos no gráfico. Toque duas vezes num ponto para zerar o ganho.", 12f).also {
+            bodyText(this, "Ajuste o ganho pelos sliders. Toque duas vezes num slider para zerar.", 12f).also {
                 it.setPadding(0, dpi(6f), 0, 0)
             }
         )
@@ -885,18 +866,11 @@ class MainActivity : Activity() {
 
     // ----- Modo sliders
 
-    private fun setSliderMode(on: Boolean) {
-        sliderMode = on
-        try { getSharedPreferences("ui", MODE_PRIVATE).edit().putBoolean("sliders", on).apply() } catch (_: Exception) { }
-        applyMode()
-    }
-
     private fun applyMode() {
         if (!::slidersPanel.isInitialized) return
-        slidersPanel.visibility = if (sliderMode) View.VISIBLE else View.GONE
-        graphLp.height = dpi(if (sliderMode) 150f else 260f)
+        slidersPanel.visibility = View.VISIBLE
+        graphLp.height = dpi(150f)
         graphPanel.layoutParams = graphLp
-        for (k in modeBtns.indices) stylePill(modeBtns[k], (k == 1) == sliderMode)
         syncSliders()
     }
 
@@ -1614,7 +1588,6 @@ class MainActivity : Activity() {
         autoSwitch.isChecked = s.auto
         globalSwitch.isChecked = s.global
         syncing = false
-        sliderMode = try { getSharedPreferences("ui", MODE_PRIVATE).getBoolean("sliders", false) } catch (_: Exception) { false }
         applyMode()
         refreshMbUi()
         curve.invalidate()
