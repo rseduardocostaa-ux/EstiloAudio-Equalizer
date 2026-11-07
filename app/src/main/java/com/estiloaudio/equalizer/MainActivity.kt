@@ -531,6 +531,7 @@ class MainActivity : Activity() {
         panel.background = rounded(C.PANEL, 16f, this)
         panel.clipToOutline = true
         spectrum = SpectrumView(this)
+        spectrum.blocks = ThemePrefs.spectrumBlocks(this)
         curve = CurveView(this)
         panel.addView(spectrum, FrameLayout.LayoutParams(-1, -1))
         panel.addView(curve, FrameLayout.LayoutParams(-1, -1))
@@ -1368,18 +1369,18 @@ class MainActivity : Activity() {
         val t = TextView(this)
         t.text = "?"
         t.gravity = Gravity.CENTER
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
         t.typeface = FONT_MEDIUM
         t.setTextColor(C.PRI_DK)
         t.includeFontPadding = false
-        t.background = rounded(C.CARD2, 13f, this, C.PRI_DK, 1f)
+        t.background = rounded(C.CARD2, 10f, this, C.PRI_DK, 1f)
         t.contentDescription = "Ajuda"
         t.setOnClickListener { showHelp(key) }
         return t
     }
 
     private fun helpLp(start: Int = 0, end: Int = 0): LinearLayout.LayoutParams {
-        val lp = LinearLayout.LayoutParams(dpi(26f), dpi(26f))
+        val lp = LinearLayout.LayoutParams(dpi(20f), dpi(20f))
         lp.marginStart = start
         lp.marginEnd = end
         return lp
@@ -1408,7 +1409,7 @@ class MainActivity : Activity() {
         for ((knob, key) in cells) {
             val cell = FrameLayout(this)
             cell.addView(knob, FrameLayout.LayoutParams(-1, -2))
-            val hlp = FrameLayout.LayoutParams(dpi(26f), dpi(26f), Gravity.TOP or Gravity.END)
+            val hlp = FrameLayout.LayoutParams(dpi(20f), dpi(20f), Gravity.TOP or Gravity.END)
             hlp.setMargins(0, dpi(2f), dpi(8f), 0)
             cell.addView(helpBtn(key), hlp)
             row.addView(cell, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1560,6 +1561,34 @@ class MainActivity : Activity() {
             spSwitch
         )
         a.addView(View(this), LinearLayout.LayoutParams(-1, dpi(10f)))
+
+        // espectro da música: curva ou blocos (a curva do EQ não muda)
+        a.addView(bodyText(this, "Espectro da música", 15f, C.INK))
+        a.addView(bodyText(this, "Como o áudio que está tocando aparece no gráfico. A curva do EQ continua igual.", 12f))
+        val specRow = LinearLayout(this)
+        specRow.orientation = LinearLayout.HORIZONTAL
+        val curveBtn = pill(this, "Curva")
+        val blocksBtn = pill(this, "Blocos")
+        stylePill(curveBtn, !ThemePrefs.spectrumBlocks(this))
+        stylePill(blocksBtn, ThemePrefs.spectrumBlocks(this))
+        val setSpectrum = { blocks: Boolean ->
+            ThemePrefs.saveSpectrumBlocks(this, blocks)
+            spectrum.blocks = blocks
+            stylePill(curveBtn, !blocks)
+            stylePill(blocksBtn, blocks)
+        }
+        curveBtn.setOnClickListener { setSpectrum(false) }
+        blocksBtn.setOnClickListener { setSpectrum(true) }
+        val s1 = LinearLayout.LayoutParams(0, -2, 1f)
+        s1.marginEnd = dpi(4f)
+        val s2 = LinearLayout.LayoutParams(0, -2, 1f)
+        s2.marginStart = dpi(4f)
+        specRow.addView(curveBtn, s1)
+        specRow.addView(blocksBtn, s2)
+        val slp = LinearLayout.LayoutParams(-1, -2)
+        slp.topMargin = dpi(8f)
+        slp.bottomMargin = dpi(14f)
+        a.addView(specRow, slp)
 
         // claro / escuro
         a.addView(bodyText(this, "Fundo do app", 15f, C.INK))

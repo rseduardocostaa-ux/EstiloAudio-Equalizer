@@ -10,6 +10,7 @@ object ThemePrefs {
     private const val K_DARK = "dark"
     private const val K_SPOTIFY = "spotify_layout"
     private const val K_COVER = "cover_base"
+    private const val K_SPEC_BLOCKS = "spectrum_blocks"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -30,6 +31,13 @@ object ThemePrefs {
 
     fun saveSpotify(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean(K_SPOTIFY, on).apply()
+    }
+
+    /** Espectro da música em blocos (true) ou em curva (false, padrão). */
+    fun spectrumBlocks(ctx: Context): Boolean = prefs(ctx).getBoolean(K_SPEC_BLOCKS, false)
+
+    fun saveSpectrumBlocks(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(K_SPEC_BLOCKS, on).apply()
     }
 
     /** Última cor dominante de capa vista (0 = nenhuma ainda). */
