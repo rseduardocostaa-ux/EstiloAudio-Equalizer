@@ -70,14 +70,7 @@ class EqService : Service() {
         EqState.ensure(this)
         engine = AudioEngine()
         createChannel()
-        try {
-            val n = buildNotification(EqState.status())
-            if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-            } else {
-                startForeground(NOTIF_ID, n)
-            }
-        } catch (e: Exception) {
+        if (!goForeground()) {
             stopSelf()
             return
         }
@@ -97,7 +90,13 @@ class EqService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!::engine.isInitialized) return START_NOT_STICKY   // onCreate saiu cedo (sem permissão para iniciar)
+        // O Android exige chamar startForeground() a CADA startForegroundService(), mesmo com o serviço já rodando.
+        // Sem isso, o app fecha sozinho com "ForegroundServiceDidNotStartInTime".
+        val ok = goForeground()
+        if (!ok || !::engine.isInitialized) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_TOGGLE -> EqState.update { it.master = !it.master }
             ACTION_REFRESH -> {
@@ -146,6 +145,22 @@ class EqService : Service() {
         if (text != lastText) {
             lastText = text
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
+        }
+    }
+
+    /** Põe o serviço em primeiro plano (com a notificação). Devolve false se o Android não deixou. */
+    private fun goForeground(): Boolean {
+        return try {
+            val n = buildNotification(EqState.status())
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            } else {
+                startForeground(NOTIF_ID, n)
+            }
+            true
+        } catch (e: Exception) {
+            CrashLog.report(e)
+            false
         }
     }
 

@@ -137,12 +137,10 @@ class MainActivity : Activity() {
             if (isFinishing || isDestroyed) return
             if (!ThemePrefs.spotify(this@MainActivity)) return
             if (CoverColor.similar(ThemePrefs.spotifyBase(this@MainActivity), C.SP_BASE)) return
-            val now = SystemClock.uptimeMillis()
-            if (touching || now - lastTouch < 1500L || now - NowPlaying.lastRecreate < 8000L) {
-                handler.postDelayed(this, 1000L)
+            if (touching || SystemClock.uptimeMillis() - lastTouch < 1500L) {
+                handler.postDelayed(this, 700L)
                 return
             }
-            NowPlaying.lastRecreate = now
             recreate()
         }
     }
