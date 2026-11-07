@@ -45,7 +45,7 @@ class SpectrumView(ctx: Context) : View(ctx) {
         for (i in 0 until n) {
             val v = if (live && i < src.size) src[i] else 0f
             // sobe suave e cai devagar
-            disp[i] = if (v > disp[i]) disp[i] + (v - disp[i]) * 0.6f else disp[i] * 0.88f
+            disp[i] = if (v > disp[i]) disp[i] + (v - disp[i]) * 0.25f else disp[i] * 0.94f
         }
         invalidate()
     }

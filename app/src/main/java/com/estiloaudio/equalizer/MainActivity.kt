@@ -576,6 +576,7 @@ class MainActivity : Activity() {
         val head = LinearLayout(this)
         head.orientation = LinearLayout.HORIZONTAL
         head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(helpBtn("band_type"), helpLp(end = dpi(8f)))
         head.addView(bandTitle, LinearLayout.LayoutParams(0, -2, 1f))
         val hl1 = LinearLayout.LayoutParams(-2, -2)
         hl1.marginStart = dpi(8f)
@@ -616,7 +617,7 @@ class MainActivity : Activity() {
         freqKnob.onChange = { v -> editBand { it.freq = 10f.pow(v).coerceIn(ParamBand.MIN_F, ParamBand.MAX_F) } }
         bandGainKnob.onChange = { v -> editBand { it.gain = v } }
         qKnob.onChange = { v -> editBand { it.q = 10f.pow(v).coerceIn(ParamBand.MIN_Q, ParamBand.MAX_Q) } }
-        bandControls.addView(weightRow(this, freqKnob, bandGainKnob, qKnob))
+        bandControls.addView(helpRow(freqKnob to "freq", bandGainKnob to "gain_band", qKnob to "q"))
         bCard.addView(bandControls)
 
         bandHint = bodyText(this, "Nenhuma banda. Toque em \"+ Banda\" para adicionar.", 13f)
@@ -1168,7 +1169,7 @@ class MainActivity : Activity() {
         val col = LinearLayout(this)
 
         val cCard = card(this, true)
-        cCard.addView(sectionTitle(this, "Compressor"))
+        cCard.addView(withHelp(sectionTitle(this, "Compressor"), "comp"))
         mbSwitch = newSwitch()
         mbSwitch.setOnCheckedChangeListener { _, on ->
             if (!syncing) {
@@ -1176,18 +1177,24 @@ class MainActivity : Activity() {
                 refreshMbUi()
             }
         }
-        switchRow(cCard, "Compressor em 3 faixas", "Graves, médios e agudos comprimidos separadamente.", mbSwitch)
+        switchRow(cCard, "Compressor em 3 faixas", "Graves, médios e agudos comprimidos separadamente.", mbSwitch, "multiband")
         grMeter = GrMeterView(this)
         cCard.addView(grMeter, LinearLayout.LayoutParams(-1, -2))
         compCurve = CompCurveView(this)
         val cclp = LinearLayout.LayoutParams(-1, dpi(190f))
         cclp.topMargin = dpi(10f)
         cCard.addView(compCurve, cclp)
-        cCard.addView(
+        val capRow = LinearLayout(this)
+        capRow.orientation = LinearLayout.HORIZONTAL
+        capRow.gravity = Gravity.CENTER_VERTICAL
+        capRow.addView(
             bodyText(this, "Entrada x saída do compressor (sem o ganho de saída). O ponto é o nível do áudio agora.", 12f).also {
                 it.setPadding(0, dpi(6f), 0, dpi(8f))
-            }
+            },
+            LinearLayout.LayoutParams(0, -2, 1f)
         )
+        capRow.addView(helpBtn("curve"), helpLp(start = dpi(8f)))
+        cCard.addView(capRow)
         attackKnob = knob("Attack", 1f, 200f, 10f, 1f, { String.format(Locale.US, "%.0f ms", it) }) { s, v -> s.attack = v }
         releaseKnob = knob("Release", 10f, 2000f, 120f, 10f, { String.format(Locale.US, "%.0f ms", it) }) { s, v -> s.release = v }
         ratioKnob = knob("Ratio", 1f, 20f, 1f, 0.5f, { if (it <= 1.01f) "Off" else String.format(Locale.US, "%.1f:1", it) }) { s, v -> s.ratio = v }
@@ -1195,8 +1202,8 @@ class MainActivity : Activity() {
         gainKnob = knob("Gain", -12f, 24f, 0f, 0.5f, { fmtDb(it) + " dB" }) { s, v -> s.gain = v }
         singleBox = LinearLayout(this)
         singleBox.orientation = LinearLayout.VERTICAL
-        singleBox.addView(weightRow(this, attackKnob, releaseKnob, ratioKnob))
-        singleBox.addView(weightRow(this, thresholdKnob, gainKnob))
+        singleBox.addView(helpRow(attackKnob to "attack", releaseKnob to "release", ratioKnob to "ratio"))
+        singleBox.addView(helpRow(thresholdKnob to "threshold", gainKnob to "gain"))
         cCard.addView(singleBox)
 
         multiBox = LinearLayout(this)
@@ -1209,7 +1216,7 @@ class MainActivity : Activity() {
         }
         x1Knob.onChange = { v -> setCrossover(0, 10f.pow(v)) }
         x2Knob.onChange = { v -> setCrossover(1, 10f.pow(v)) }
-        multiBox.addView(weightRow(this, x1Knob, x2Knob))
+        multiBox.addView(helpRow(x1Knob to "crossover", x2Knob to "crossover"))
 
         val pillRow = LinearLayout(this)
         pillRow.orientation = LinearLayout.HORIZONTAL
@@ -1235,8 +1242,8 @@ class MainActivity : Activity() {
         mbRatioKnob = mbKnob("Ratio", 1f, 20f, 1f, 0.5f, { if (it <= 1.01f) "Off" else String.format(Locale.US, "%.1f:1", it) }) { s, b, v -> s.mbRatio[b] = v }
         mbThrKnob = mbKnob("Threshold", -60f, 0f, -18f, 1f, { String.format(Locale.US, "%.0f dB", it) }) { s, b, v -> s.mbThr[b] = v }
         mbGainKnob = mbKnob("Gain", -12f, 24f, 0f, 0.5f, { fmtDb(it) + " dB" }) { s, b, v -> s.mbGain[b] = v }
-        multiBox.addView(weightRow(this, mbAtkKnob, mbRelKnob, mbRatioKnob))
-        multiBox.addView(weightRow(this, mbThrKnob, mbGainKnob))
+        multiBox.addView(helpRow(mbAtkKnob to "attack", mbRelKnob to "release", mbRatioKnob to "ratio"))
+        multiBox.addView(helpRow(mbThrKnob to "threshold", mbGainKnob to "gain"))
         cCard.addView(multiBox)
         col.addView(cCard)
 
@@ -1250,7 +1257,7 @@ class MainActivity : Activity() {
             }
         }, true) { s, v -> s.balance = v }
         volumeKnob = knob("Volume", -24f, 6f, 0f, 0.5f, { fmtDb(it) + " dB" }) { s, v -> s.volume = v }
-        oCard.addView(weightRow(this, balanceKnob, volumeKnob))
+        oCard.addView(helpRow(balanceKnob to "balance", volumeKnob to "volume"))
         col.addView(oCard)
 
         val lCard = card(this, true)
@@ -1258,14 +1265,14 @@ class MainActivity : Activity() {
         lHead.orientation = LinearLayout.HORIZONTAL
         lHead.gravity = Gravity.CENTER_VERTICAL
         val lt = sectionTitle(this, "Limiter de saída")
-        lHead.addView(lt, LinearLayout.LayoutParams(0, -2, 1f))
+        lHead.addView(withHelp(lt, "limiter"), LinearLayout.LayoutParams(0, -2, 1f))
         limSwitch = newSwitch()
         limSwitch.setOnCheckedChangeListener { _, on -> if (!syncing) EqState.update { it.limOn = on } }
         lHead.addView(limSwitch)
         lCard.addView(lHead)
         limThrKnob = knob("Threshold", -20f, 0f, -1f, 0.5f, { String.format(Locale.US, "%.1f dB", it) }) { s, v -> s.limThr = v }
         limRelKnob = knob("Release", 5f, 500f, 60f, 5f, { String.format(Locale.US, "%.0f ms", it) }) { s, v -> s.limRel = v }
-        lCard.addView(weightRow(this, limThrKnob, limRelKnob))
+        lCard.addView(helpRow(limThrKnob to "lim_thr", limRelKnob to "lim_rel"))
         col.addView(lCard)
 
         val resetComp = pill(this, "Reset")
@@ -1354,14 +1361,120 @@ class MainActivity : Activity() {
 
     private fun newSwitch(): M3Switch = M3Switch(this)
 
-    private fun switchRow(parent: LinearLayout, title: String, desc: String, sw: M3Switch) {
+    // ----- Ajuda (botão "?")
+
+    /** Bolinha com "?" que abre a explicação do assunto [key] (textos em HelpTexts). */
+    private fun helpBtn(key: String): TextView {
+        val t = TextView(this)
+        t.text = "?"
+        t.gravity = Gravity.CENTER
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        t.typeface = FONT_MEDIUM
+        t.setTextColor(C.PRI_DK)
+        t.includeFontPadding = false
+        t.background = rounded(C.CARD2, 13f, this, C.PRI_DK, 1f)
+        t.contentDescription = "Ajuda"
+        t.setOnClickListener { showHelp(key) }
+        return t
+    }
+
+    private fun helpLp(start: Int = 0, end: Int = 0): LinearLayout.LayoutParams {
+        val lp = LinearLayout.LayoutParams(dpi(26f), dpi(26f))
+        lp.marginStart = start
+        lp.marginEnd = end
+        return lp
+    }
+
+    /** Coloca a bolinha "?" logo depois de um texto/título. */
+    private fun withHelp(v: View, key: String): LinearLayout {
+        val old = v.layoutParams as? ViewGroup.MarginLayoutParams
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        val rlp = LinearLayout.LayoutParams(-1, -2)
+        if (old != null) rlp.setMargins(old.leftMargin, old.topMargin, old.rightMargin, old.bottomMargin)
+        row.layoutParams = rlp
+        row.addView(v, LinearLayout.LayoutParams(-2, -2))
+        row.addView(helpBtn(key), helpLp(start = dpi(8f)))
+        return row
+    }
+
+    /** Linha de knobs (como weightRow), cada um com a bolinha "?" no canto de cima. */
+    private fun helpRow(vararg cells: Pair<View, String>): LinearLayout {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.weightSum = 3f
+        if (cells.size == 2) row.addView(View(this), LinearLayout.LayoutParams(0, 1, 0.5f))
+        for ((knob, key) in cells) {
+            val cell = FrameLayout(this)
+            cell.addView(knob, FrameLayout.LayoutParams(-1, -2))
+            val hlp = FrameLayout.LayoutParams(dpi(26f), dpi(26f), Gravity.TOP or Gravity.END)
+            hlp.setMargins(0, dpi(2f), dpi(8f), 0)
+            cell.addView(helpBtn(key), hlp)
+            row.addView(cell, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        if (cells.size == 2) row.addView(View(this), LinearLayout.LayoutParams(0, 1, 0.5f))
+        return row
+    }
+
+    private fun showHelp(key: String) {
+        val h = HelpTexts.get(key) ?: return
+        val (dlg, box) = newDialogBox(h.title)
+
+        val body = LinearLayout(this)
+        body.orientation = LinearLayout.VERTICAL
+        val what = bodyText(this, h.what, 14f, C.INK)
+        what.setPadding(0, dpi(10f), 0, dpi(4f))
+        body.addView(what)
+        for ((label, text) in listOf(h.ex1Label to h.ex1, h.ex2Label to h.ex2)) {
+            val card = LinearLayout(this)
+            card.orientation = LinearLayout.VERTICAL
+            card.background = rounded(C.CARD, 14f, this)
+            card.setPadding(dpi(14f), dpi(10f), dpi(14f), dpi(12f))
+            val lab = TextView(this)
+            lab.text = label
+            lab.setTextColor(C.PRI_DK)
+            lab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            lab.typeface = FONT_MEDIUM
+            card.addView(lab)
+            val txt = bodyText(this, text, 13.5f, C.INK)
+            txt.setPadding(0, dpi(4f), 0, 0)
+            card.addView(txt)
+            val clp = LinearLayout.LayoutParams(-1, -2)
+            clp.topMargin = dpi(10f)
+            body.addView(card, clp)
+        }
+
+        val scroll = ScrollView(this)
+        scroll.isVerticalScrollBarEnabled = false
+        scroll.addView(body, ViewGroup.LayoutParams(-1, -2))
+        val maxH = (resources.displayMetrics.heightPixels * 0.62f).toInt()
+        box.addView(scroll, LinearLayout.LayoutParams(-1, -2))
+        scroll.viewTreeObserver.addOnGlobalLayoutListener {
+            if (scroll.height > maxH) {
+                val lp = scroll.layoutParams
+                lp.height = maxH
+                scroll.layoutParams = lp
+            }
+        }
+
+        val ok = pill(this, "Entendi")
+        ok.setOnClickListener { dlg.dismiss() }
+        val olp = LinearLayout.LayoutParams(-1, -2)
+        olp.topMargin = dpi(14f)
+        box.addView(ok, olp)
+        dlg.show()
+    }
+
+    private fun switchRow(parent: LinearLayout, title: String, desc: String, sw: M3Switch, helpKey: String? = null) {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
         row.setPadding(0, dpi(7f), 0, dpi(7f))
         val texts = LinearLayout(this)
         texts.orientation = LinearLayout.VERTICAL
-        texts.addView(bodyText(this, title, 15f, C.INK))
+        val tt = bodyText(this, title, 15f, C.INK)
+        texts.addView(if (helpKey != null) withHelp(tt, helpKey) else tt)
         texts.addView(bodyText(this, desc, 12f))
         row.addView(texts, LinearLayout.LayoutParams(0, -2, 1f))
         val slp = LinearLayout.LayoutParams(-2, -2)
@@ -1401,10 +1514,14 @@ class MainActivity : Activity() {
     }
 
     private fun swatch(color: Int, selected: Boolean): FrameLayout {
-        val cell = FrameLayout(this)
+        // célula quadrada: a altura acompanha a largura (que vem do peso na linha)
+        val cell = object : FrameLayout(this) {
+            override fun onMeasure(widthSpec: Int, heightSpec: Int) = super.onMeasure(widthSpec, widthSpec)
+        }
         val dot = View(this)
         val g = GradientDrawable()
-        g.shape = GradientDrawable.OVAL
+        g.shape = GradientDrawable.RECTANGLE
+        g.cornerRadius = dpf(10f)
         g.setColor(color)
         if (selected) g.setStroke(dpi(3f), C.INK) else g.setStroke(dpi(1f), C.LINE)
         dot.background = g
@@ -1479,7 +1596,7 @@ class MainActivity : Activity() {
             row.orientation = LinearLayout.HORIZONTAL
             for (j in 0 until perRow) {
                 val idx = start + j
-                val lp = LinearLayout.LayoutParams(0, dpi(46f), 1f)
+                val lp = LinearLayout.LayoutParams(0, -2, 1f)
                 if (idx < ACCENT_PALETTE.size) {
                     val color = ACCENT_PALETTE[idx]
                     val cell = swatch(color, (color and 0xFFFFFF) == current)

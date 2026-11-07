@@ -5,6 +5,7 @@ import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.Visualizer
 import android.os.SystemClock
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.log10
 import kotlin.math.log2
@@ -111,6 +112,7 @@ class AudioEngine {
         viz = null
         EqState.vizOk = false
         EqState.bars = FloatArray(EqState.BARS)
+        barsSm = FloatArray(0)
         EqState.grDb = 0f
         EqState.peakDb = -90f
         EqState.inDb = -90f
@@ -201,6 +203,14 @@ class AudioEngine {
 
     // ---------- Espectro e medidor ----------
 
+    private var barsSm = FloatArray(0)
+
+    private fun binMag(fft: ByteArray, k: Int): Float {
+        val re = fft[2 * k].toFloat()
+        val im = fft[2 * k + 1].toFloat()
+        return sqrt(re * re + im * im)
+    }
+
     private fun onFft(fft: ByteArray, srMilli: Int) {
         val n = fft.size
         val sr = srMilli / 1000f
@@ -211,20 +221,38 @@ class AudioEngine {
         val out = FloatArray(bars)
         for (b in 0 until bars) {
             val f0 = 31.25f * 2f.pow(9f * b / bars)
-            val f1 = 31.25f * 2f.pow(9f * (b + 1) / bars)
-            val k0 = (f0 / binHz).roundToInt().coerceIn(1, half - 1)
-            val k1 = (f1 / binHz).roundToInt().coerceIn(k0, half - 1)
-            var m = 0f
-            for (k in k0..k1) {
-                val re = fft[2 * k].toFloat()
-                val im = fft[2 * k + 1].toFloat()
-                m = max(m, sqrt(re * re + im * im))
-            }
+            val f1 = 31.25f * 2f.pow(9f * (b + 1f) / bars)
             val fc = sqrt(f0 * f1)
-            val db = 20f * log10(m + 1f) + 3f * max(0f, log2(fc / 100f))
-            out[b] = ((db - 8f) / 40f).coerceIn(0f, 1f)
+            val x0 = f0 / binHz
+            val x1 = f1 / binHz
+            val m: Float
+            if (x1 - x0 < 1f) {
+                // faixa mais estreita que um bin (graves): interpola entre os bins vizinhos,
+                // em vez de todas as barras repetirem o mesmo valor
+                val x = (fc / binHz).coerceIn(1f, (half - 2).toFloat())
+                val k = x.toInt()
+                val fr = x - k
+                var v = binMag(fft, k) * (1f - fr) + binMag(fft, k + 1) * fr
+                if (fc < binHz) v *= fc / binHz   // abaixo do primeiro bin quase não há dado: desce suave
+                m = v
+            } else {
+                // faixa larga: média de energia dos bins (mais estável que pegar só o maior)
+                val k0 = ceil(x0).toInt().coerceIn(1, half - 1)
+                val k1 = x1.toInt().coerceIn(k0, half - 1)
+                var sum = 0f
+                for (k in k0..k1) {
+                    val v = binMag(fft, k)
+                    sum += v * v
+                }
+                m = sqrt(sum / (k1 - k0 + 1))
+            }
+            val db = 20f * log10(m + 1f) + 2f * max(0f, log2(fc / 100f))
+            out[b] = ((db - 12f) / 38f).coerceIn(0f, 1f)
         }
-        EqState.bars = out
+        // suaviza no tempo para não ficar tremendo com música lenta ou com poucos instrumentos
+        if (barsSm.size != bars) barsSm = FloatArray(bars)
+        for (b in 0 until bars) barsSm[b] += (out[b] - barsSm[b]) * 0.35f
+        EqState.bars = barsSm.copyOf()
     }
 
     private fun onWave(w: ByteArray) {
