@@ -97,6 +97,7 @@ class EqService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!::engine.isInitialized) return START_NOT_STICKY   // onCreate saiu cedo (sem permissão para iniciar)
         when (intent?.action) {
             ACTION_TOGGLE -> EqState.update { it.master = !it.master }
             ACTION_REFRESH -> {

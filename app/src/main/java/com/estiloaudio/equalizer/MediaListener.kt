@@ -25,20 +25,31 @@ class MediaListener : NotificationListenerService() {
     private var current: MediaController? = null
 
     private val sessionsListener =
-        MediaSessionManager.OnActiveSessionsChangedListener { list -> pick(list) }
+        MediaSessionManager.OnActiveSessionsChangedListener { list -> safe { pick(list) } }
 
     private val callback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) {
-            readMetadata(metadata)
+            safe { readMetadata(metadata) }
         }
 
         override fun onPlaybackStateChanged(state: PlaybackState?) {
-            NowPlaying.setState(state)
-            NowPlaying.notifyChanged()
+            safe {
+                NowPlaying.setState(state)
+                NowPlaying.notifyChanged()
+            }
         }
 
         override fun onSessionDestroyed() {
-            drop()
+            safe { drop() }
+        }
+    }
+
+    /** Qualquer erro aqui é guardado em Ajustes em vez de derrubar o app. */
+    private fun safe(block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Throwable) {
+            CrashLog.report(e)
         }
     }
 
@@ -51,7 +62,9 @@ class MediaListener : NotificationListenerService() {
             manager = m
             m.addOnActiveSessionsChangedListener(sessionsListener, cn, main)
             pick(m.getActiveSessions(cn))
-        } catch (_: Exception) { }
+        } catch (e: Throwable) {
+            CrashLog.report(e)
+        }
         NowPlaying.notifyChanged()
     }
 
@@ -65,6 +78,10 @@ class MediaListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        safe { handlePosted(sbn) }
+    }
+
+    private fun handlePosted(sbn: StatusBarNotification?) {
         // plano B da capa: a imagem grande da notificação do Spotify (só se a sessão não trouxe a capa)
         if (sbn == null || sbn.packageName != NowPlaying.SPOTIFY) return
         if (NowPlaying.cover != null) return

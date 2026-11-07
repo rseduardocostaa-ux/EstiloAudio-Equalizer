@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.media.session.MediaController
 import android.media.session.PlaybackState
 import android.os.SystemClock
+import kotlin.math.abs
 
 /**
  * Música que está tocando no Spotify. É preenchida pelo [MediaListener] e lida pela tela.
@@ -23,6 +24,9 @@ object NowPlaying {
     var durationMs = 0L
     var controller: MediaController? = null
 
+    /** Quando a tela foi refeita por mudança de cor da capa (evita refazer sem parar). */
+    var lastRecreate = 0L
+
     private var posMs = 0L
     private var posTime = 0L
     private var speed = 1f
@@ -38,7 +42,13 @@ object NowPlaying {
     }
 
     fun notifyChanged() {
-        for (l in ArrayList(listeners)) l()
+        for (l in ArrayList(listeners)) {
+            try {
+                l()
+            } catch (e: Throwable) {
+                CrashLog.report(e)
+            }
+        }
     }
 
     fun setState(s: PlaybackState?) {
@@ -107,7 +117,7 @@ object CoverColor {
         }
 
         if (vivid < n * 0.04f) {
-            val g = ((valueSum / n).coerceIn(0.35f, 0.9f) * 255f).toInt()
+            val g = ((valueSum / n).coerceIn(0.35f, 0.9f) * 255f).toInt() and 0xF8
             return Color.rgb(g, g, g)
         }
 
@@ -132,6 +142,11 @@ object CoverColor {
             b += bSum[i]
         }
         if (wt <= 0f) return 0
-        return Color.rgb((r / wt).toInt(), (g / wt).toInt(), (b / wt).toInt())
+        // arredonda para evitar mudanças minúsculas de cor entre uma leitura e outra da mesma capa
+        return Color.rgb(((r / wt).toInt()) and 0xF8, ((g / wt).toInt()) and 0xF8, ((b / wt).toInt()) and 0xF8)
     }
+
+    /** true se as duas cores são praticamente a mesma. */
+    fun similar(a: Int, b: Int): Boolean =
+        abs(Color.red(a) - Color.red(b)) + abs(Color.green(a) - Color.green(b)) + abs(Color.blue(a) - Color.blue(b)) < 40
 }

@@ -136,11 +136,13 @@ class MainActivity : Activity() {
         override fun run() {
             if (isFinishing || isDestroyed) return
             if (!ThemePrefs.spotify(this@MainActivity)) return
-            if (ThemePrefs.spotifyBase(this@MainActivity) == C.SP_BASE) return
-            if (touching || SystemClock.uptimeMillis() - lastTouch < 1500L) {
-                handler.postDelayed(this, 700L)
+            if (CoverColor.similar(ThemePrefs.spotifyBase(this@MainActivity), C.SP_BASE)) return
+            val now = SystemClock.uptimeMillis()
+            if (touching || now - lastTouch < 1500L || now - NowPlaying.lastRecreate < 8000L) {
+                handler.postDelayed(this, 1000L)
                 return
             }
+            NowPlaying.lastRecreate = now
             recreate()
         }
     }
@@ -1626,6 +1628,36 @@ class MainActivity : Activity() {
         bCard.addView(batt, blp)
         col.addView(bCard)
 
+        val lastError = CrashLog.last(this)
+        if (lastError != null) {
+            val eCard = card(this)
+            eCard.addView(sectionTitle(this, "Último erro", 0f))
+            eCard.addView(bodyText(this, "Se o app fechou sozinho, toque em Copiar e me envie o texto.", 13f))
+            val errText = bodyText(this, lastError, 10.5f)
+            errText.typeface = Typeface.MONOSPACE
+            errText.setTextIsSelectable(true)
+            errText.setPadding(0, dpi(8f), 0, dpi(8f))
+            eCard.addView(errText)
+            val copyBtn = pill(this, "Copiar erro")
+            copyBtn.setOnClickListener {
+                try {
+                    val cm = getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("erro", lastError))
+                    Toast.makeText(this, "Erro copiado", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) { }
+            }
+            val clearBtn = pill(this, "Limpar")
+            clearBtn.setOnClickListener {
+                CrashLog.clear(this)
+                recreate()
+            }
+            eCard.addView(copyBtn, LinearLayout.LayoutParams(-1, -2))
+            val clp = LinearLayout.LayoutParams(-1, -2)
+            clp.topMargin = dpi(6f)
+            eCard.addView(clearBtn, clp)
+            col.addView(eCard)
+        }
+
         val tip = bodyText(this, "Toque duas vezes num slider ou knob para zerar.", 12f)
         tip.gravity = Gravity.CENTER
         tip.setPadding(dpi(4f), dpi(6f), dpi(4f), 0)
@@ -1790,7 +1822,7 @@ class MainActivity : Activity() {
 
     private fun checkSpotifyTheme() {
         if (!ThemePrefs.spotify(this)) return
-        if (ThemePrefs.spotifyBase(this) == C.SP_BASE) return
+        if (CoverColor.similar(ThemePrefs.spotifyBase(this), C.SP_BASE)) return
         handler.removeCallbacks(themeRunnable)
         handler.postDelayed(themeRunnable, 500L)
     }
