@@ -6,12 +6,16 @@ import android.app.Dialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputFilter
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -25,8 +29,17 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
+import kotlin.math.ln
+import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 class MainActivity : Activity() {
+
+    private companion object {
+        const val REQ_EXPORT = 21
+        const val REQ_IMPORT = 22
+    }
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -40,12 +53,46 @@ class MainActivity : Activity() {
 
     private lateinit var curve: CurveView
     private lateinit var spectrum: SpectrumView
-    private lateinit var sliders: List<LedSlider> // 0 = preamp, 1..10 = bandas
+    private lateinit var preampKnob: KnobView
+    private lateinit var freqKnob: KnobView
+    private lateinit var bandGainKnob: KnobView
+    private lateinit var qKnob: KnobView
+    private lateinit var bandTitle: TextView
+    private lateinit var bandControls: LinearLayout
+    private lateinit var bandHint: TextView
+    private lateinit var typeBtns: List<TextView>
+    private lateinit var delBandBtn: TextView
+    private lateinit var autoPreSwitch: M3Switch
+    private lateinit var autoPreDesc: TextView
     private lateinit var bassKnob: KnobView
     private lateinit var trebleKnob: KnobView
     private lateinit var bypassBtn: TextView
+    private lateinit var presetBtn: TextView
 
     private lateinit var grMeter: GrMeterView
+    private lateinit var peakMeter: PeakMeterView
+    private lateinit var compCurve: CompCurveView
+    private lateinit var mbSwitch: M3Switch
+    private lateinit var singleBox: LinearLayout
+    private lateinit var multiBox: LinearLayout
+    private lateinit var x1Knob: KnobView
+    private lateinit var x2Knob: KnobView
+    private lateinit var mbPills: List<TextView>
+    private lateinit var mbRange: TextView
+    private lateinit var mbAtkKnob: KnobView
+    private lateinit var mbRelKnob: KnobView
+    private lateinit var mbRatioKnob: KnobView
+    private lateinit var mbThrKnob: KnobView
+    private lateinit var mbGainKnob: KnobView
+    private var selBand = 0
+    private lateinit var lowCutSwitch: M3Switch
+    private lateinit var highCutSwitch: M3Switch
+    private lateinit var lowCutBox: LinearLayout
+    private lateinit var highCutBox: LinearLayout
+    private lateinit var lowCutKnob: KnobView
+    private lateinit var highCutKnob: KnobView
+    private lateinit var lowCutPills: List<TextView>
+    private lateinit var highCutPills: List<TextView>
     private lateinit var attackKnob: KnobView
     private lateinit var releaseKnob: KnobView
     private lateinit var ratioKnob: KnobView
@@ -64,12 +111,15 @@ class MainActivity : Activity() {
     private lateinit var micStatus: TextView
 
     private var syncing = false
+    private var curTab = 0
 
     private val ticker = object : Runnable {
         override fun run() {
             val live = EqState.vizOk && EqState.running
             spectrum.feed(EqState.bars, live)
             grMeter.value = if (EqState.running) EqState.grDb else 0f
+            compCurve.feed(EqState.inDb, EqState.vizOk && EqState.running)
+            peakMeter.feed(EqState.peakDb, EqState.peakState, EqState.vizOk && EqState.running)
             statusView.text = EqState.status()
             val s = EqState.s
             val off = !s.master && !s.auto
@@ -89,6 +139,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         EqState.ensure(this)
+        ThemePrefs.apply(this)
+        window.setBackgroundDrawable(ColorDrawable(C.BG))
 
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
@@ -100,11 +152,36 @@ class MainActivity : Activity() {
         }
 
         setContentView(buildUi())
+        applySystemBars()
         refreshFromState()
-        selectTab(0)
+        selectTab(savedInstanceState?.getInt("tab", 0) ?: 0)
+        val settingsScroll = savedInstanceState?.getInt("settingsScroll", 0) ?: 0
+        if (settingsScroll > 0) pages[2].post { pages[2].scrollTo(0, settingsScroll) }
 
         askPermissionsOnce()
         syncService()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("tab", curTab)
+        outState.putInt("settingsScroll", pages[2].scrollY)
+    }
+
+    /** Ícones claros ou escuros na barra de status e na de navegação, conforme o tema. */
+    @Suppress("DEPRECATION")
+    private fun applySystemBars() {
+        val light = !C.DARK
+        if (Build.VERSION.SDK_INT >= 30) {
+            val mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            window.insetsController?.setSystemBarsAppearance(if (light) mask else 0, mask)
+        } else {
+            var f = window.decorView.systemUiVisibility
+            val bits = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            f = if (light) f or bits else f and bits.inv()
+            window.decorView.systemUiVisibility = f
+        }
     }
 
     override fun onResume() {
@@ -326,7 +403,7 @@ class MainActivity : Activity() {
     private fun applyHeaderStyle(off: Boolean) {
         logoView.off = off
         titleView.setTextColor(if (off) C.SUB else C.PRI_DK)
-        if (off) titleView.setShadowLayer(0f, 0f, 0f, 0) else titleView.setShadowLayer(dpf(2f), 0f, dpf(1f), 0x594A6600)
+        if (off) titleView.setShadowLayer(0f, 0f, 0f, 0) else titleView.setShadowLayer(dpf(2f), 0f, dpf(1f), C.GLOW)
         statusView.setTextColor(if (off) C.SUB else C.PRI_DK)
         statusView.background = rounded(if (off) C.OFFBG else C.CARD2, 12f, this)
         statusView.setPadding(dpi(10f), dpi(4f), dpi(10f), dpi(4f))
@@ -343,6 +420,7 @@ class MainActivity : Activity() {
         else ins.systemWindowInsetBottom
 
     private fun selectTab(i: Int) {
+        curTab = i
         for (k in pages.indices) pages[k].visibility = if (k == i) View.VISIBLE else View.GONE
         for (k in tabIcons.indices) tabIcons[k].active = (k == i)
     }
@@ -363,47 +441,28 @@ class MainActivity : Activity() {
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
 
-        // sliders (cartão verde-claro)
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        val labels = listOf("Preamp", "31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K")
-        val list = ArrayList<LedSlider>()
-        for (i in labels.indices) {
-            val sl = LedSlider(this, labels[i], i == 0)
-            sl.onChange = { v ->
-                EqState.update { s ->
-                    if (i == 0) {
-                        s.preamp = v
-                    } else {
-                        s.bands[i - 1] = v
-                    }
-                }
-                curve.invalidate()
-            }
-            list.add(sl)
-            val w = if (i == 0) 1.5f else 1f
-            row.addView(sl, LinearLayout.LayoutParams(0, -1, w))
-            if (i == 0) {
-                val div = View(this)
-                div.setBackgroundColor(C.LINE)
-                val lp = LinearLayout.LayoutParams(dpi(1f), -1)
-                lp.topMargin = dpi(6f)
-                lp.bottomMargin = dpi(46f)
-                lp.marginStart = dpi(2f)
-                lp.marginEnd = dpi(2f)
-                row.addView(div, lp)
-            }
-        }
-        sliders = list
-        val sliderCard = LinearLayout(this)
-        sliderCard.background = rounded(C.CARD, 16f, this)
-        sliderCard.setPadding(0, dpi(6f), 0, 0)
-        sliderCard.minimumHeight = dpi(270f)
-        sliderCard.addView(row, LinearLayout.LayoutParams(-1, -1))
-        // os sliders ocupam a altura que sobra na tela (como na prévia)
-        col.addView(sliderCard, LinearLayout.LayoutParams(-1, 0, 1f))
+        // barra de presets: escolher (abre a lista) e salvar o atual
+        presetBtn = pill(this, "Preset")
+        presetBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        presetBtn.setPadding(dpi(14f), dpi(8f), dpi(14f), dpi(8f))
+        presetBtn.maxLines = 1
+        presetBtn.ellipsize = android.text.TextUtils.TruncateAt.END
+        presetBtn.setOnClickListener { showPresetList() }
+        val saveBtn = pill(this, "Salvar")
+        saveBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        saveBtn.setPadding(dpi(14f), dpi(8f), dpi(14f), dpi(8f))
+        saveBtn.setOnClickListener { showSavePreset() }
+        val presetRow = LinearLayout(this)
+        presetRow.orientation = LinearLayout.HORIZONTAL
+        presetRow.addView(presetBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        val svlp = LinearLayout.LayoutParams(-2, -2)
+        svlp.marginStart = dpi(8f)
+        presetRow.addView(saveBtn, svlp)
+        val prlp = LinearLayout.LayoutParams(-1, -2)
+        prlp.bottomMargin = dpi(6f)
+        col.addView(presetRow, prlp)
 
-        // painel: espectro (barras) + curva por cima
+        // gráfico: espectro (barras) + curva e pontos por cima (arraste os pontos)
         val panel = FrameLayout(this)
         panel.background = rounded(C.PANEL, 16f, this)
         panel.clipToOutline = true
@@ -411,59 +470,537 @@ class MainActivity : Activity() {
         curve = CurveView(this)
         panel.addView(spectrum, FrameLayout.LayoutParams(-1, -1))
         panel.addView(curve, FrameLayout.LayoutParams(-1, -1))
-        val plp = LinearLayout.LayoutParams(-1, dpi(140f))
-        plp.topMargin = dpi(6f)
-        plp.bottomMargin = dpi(6f)
+        curve.onSelect = { refreshBandEditor() }
+        curve.onEdit = { bandEdited() }
+        curve.onAdd = { f, g -> addBand(f, g) }
+        val plp = LinearLayout.LayoutParams(-1, dpi(260f))
+        plp.bottomMargin = dpi(8f)
         col.addView(panel, plp)
 
-        // botões (esquerda) e knobs Bass / Treble (direita)
+        // medidor de pico de saída (estimado) com aviso de clipping
+        peakMeter = PeakMeterView(this)
+        val pmlp = LinearLayout.LayoutParams(-1, dpi(44f))
+        pmlp.bottomMargin = dpi(8f)
+        pmlp.marginStart = dpi(4f)
+        pmlp.marginEnd = dpi(4f)
+        col.addView(peakMeter, pmlp)
+
+        // editor da banda selecionada
+        val bCard = card(this)
+        bandTitle = TextView(this)
+        bandTitle.setTextColor(C.INK)
+        bandTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        bandTitle.typeface = FONT_MEDIUM
+        bandTitle.maxLines = 1
+        bandTitle.ellipsize = android.text.TextUtils.TruncateAt.END
+        val addBtn = pill(this, "+ Banda")
+        addBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+        addBtn.setPadding(dpi(12f), dpi(7f), dpi(12f), dpi(7f))
+        addBtn.setOnClickListener { addBand(nextBandFreq(), 0f) }
+        delBandBtn = pill(this, "Remover")
+        delBandBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+        delBandBtn.setPadding(dpi(12f), dpi(7f), dpi(12f), dpi(7f))
+        delBandBtn.setOnClickListener { removeSelectedBand() }
+        val head = LinearLayout(this)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.addView(bandTitle, LinearLayout.LayoutParams(0, -2, 1f))
+        val hl1 = LinearLayout.LayoutParams(-2, -2)
+        hl1.marginStart = dpi(8f)
+        head.addView(addBtn, hl1)
+        val hl2 = LinearLayout.LayoutParams(-2, -2)
+        hl2.marginStart = dpi(6f)
+        head.addView(delBandBtn, hl2)
+        bCard.addView(head)
+
+        bandControls = LinearLayout(this)
+        bandControls.orientation = LinearLayout.VERTICAL
+        val typeRow = LinearLayout(this)
+        typeRow.orientation = LinearLayout.HORIZONTAL
+        val typeNames = listOf("Pico", "Grave", "Agudo")
+        typeBtns = typeNames.mapIndexed { i, n ->
+            val p = pill(this, n)
+            p.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            p.setPadding(dpi(8f), dpi(8f), dpi(8f), dpi(8f))
+            p.setOnClickListener { setBandType(i) }
+            val lp = LinearLayout.LayoutParams(0, -2, 1f)
+            lp.marginStart = if (i == 0) 0 else dpi(6f)
+            typeRow.addView(p, lp)
+            p
+        }
+        val trlp = LinearLayout.LayoutParams(-1, -2)
+        trlp.topMargin = dpi(10f)
+        bandControls.addView(typeRow, trlp)
+
+        freqKnob = KnobView(this, "Freq", log10(ParamBand.MIN_F), log10(ParamBand.MAX_F), log10(1000f), false, 0.005f, false, true) {
+            fmtFreq(10f.pow(it))
+        }
+        bandGainKnob = KnobView(this, "Gain", -ParamBand.MAX_GAIN, ParamBand.MAX_GAIN, 0f, true, 0.1f, true, true) {
+            fmtDb(it) + " dB"
+        }
+        qKnob = KnobView(this, "Q", log10(ParamBand.MIN_Q), log10(ParamBand.MAX_Q), log10(ParamBand.DEFAULT_Q), false, 0.01f, false, true) {
+            String.format(Locale.US, "%.2f", 10f.pow(it))
+        }
+        freqKnob.onChange = { v -> editBand { it.freq = 10f.pow(v).coerceIn(ParamBand.MIN_F, ParamBand.MAX_F) } }
+        bandGainKnob.onChange = { v -> editBand { it.gain = v } }
+        qKnob.onChange = { v -> editBand { it.q = 10f.pow(v).coerceIn(ParamBand.MIN_Q, ParamBand.MAX_Q) } }
+        bandControls.addView(weightRow(this, freqKnob, bandGainKnob, qKnob))
+        bCard.addView(bandControls)
+
+        bandHint = bodyText(this, "Nenhuma banda. Toque em \"+ Banda\" ou toque duas vezes no gráfico para adicionar.", 13f)
+        bandHint.setPadding(0, dpi(10f), 0, 0)
+        bCard.addView(bandHint)
+        bCard.addView(
+            bodyText(this, "Arraste os pontos no gráfico. Toque duas vezes num ponto para zerar o ganho.", 12f).also {
+                it.setPadding(0, dpi(6f), 0, 0)
+            }
+        )
+        col.addView(bCard)
+
+        // preamp, Bass e Treble
+        preampKnob = KnobView(this, "Preamp", -12f, 12f, 0f, true, 0.5f, true, true) { fmtDb(it) + " dB" }
         bassKnob = KnobView(this, "Bass", -12f, 12f, 0f, true, 0.5f, true, true) { fmtDb(it) + " dB" }
         trebleKnob = KnobView(this, "Treble", -12f, 12f, 0f, true, 0.5f, true, true) { fmtDb(it) + " dB" }
-        bassKnob.onChange = { v -> EqState.update { it.bass = v }; curve.invalidate() }
-        trebleKnob.onChange = { v -> EqState.update { it.treble = v }; curve.invalidate() }
+        preampKnob.onChange = { v -> EqState.update { it.preamp = v }; updatePresetLabel(); updateAutoPre() }
+        bassKnob.onChange = { v -> EqState.update { it.bass = v }; curve.invalidate(); updatePresetLabel(); updateAutoPre() }
+        trebleKnob.onChange = { v -> EqState.update { it.treble = v }; curve.invalidate(); updatePresetLabel(); updateAutoPre() }
+        val kw = weightRow(this, preampKnob, bassKnob, trebleKnob)
+        val kwlp = LinearLayout.LayoutParams(-1, -2)
+        kwlp.bottomMargin = dpi(8f)
+        col.addView(kw, kwlp)
 
+        // preamp automático (opcional)
+        val apCard = card(this)
+        val apRow = LinearLayout(this)
+        apRow.orientation = LinearLayout.HORIZONTAL
+        apRow.gravity = Gravity.CENTER_VERTICAL
+        val apTexts = LinearLayout(this)
+        apTexts.orientation = LinearLayout.VERTICAL
+        apTexts.addView(bodyText(this, "Preamp automático", 15f, C.INK))
+        autoPreDesc = bodyText(this, "", 12f)
+        apTexts.addView(autoPreDesc)
+        apRow.addView(apTexts, LinearLayout.LayoutParams(0, -2, 1f))
+        autoPreSwitch = newSwitch()
+        autoPreSwitch.setOnCheckedChangeListener { _, on ->
+            if (!syncing) {
+                EqState.update { it.autoPreamp = on }
+                updateAutoPre()
+            }
+        }
+        val aplp = LinearLayout.LayoutParams(-2, -2)
+        aplp.marginStart = dpi(12f)
+        apRow.addView(autoPreSwitch, aplp)
+        apCard.addView(apRow)
+        col.addView(apCard)
+        col.addView(buildCutCard())
+
+        // Bypass e Reset
         bypassBtn = pill(this, "Bypass")
-        bypassBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-        bypassBtn.setPadding(dpi(10f), dpi(9f), dpi(10f), dpi(9f))
         bypassBtn.setOnClickListener {
             EqState.update { it.bypass = !it.bypass }
             stylePill(bypassBtn, EqState.s.bypass)
             curve.invalidate()
+            updateAutoPre()
         }
         val resetBtn = pill(this, "Reset")
-        resetBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-        resetBtn.setPadding(dpi(10f), dpi(9f), dpi(10f), dpi(9f))
         resetBtn.setOnClickListener {
             EqState.update { s ->
+                s.resetBands()
                 s.preamp = 0f
-                s.bands.fill(0f)
                 s.bass = 0f
                 s.treble = 0f
             }
+            curve.selected = 0
             refreshFromState()
         }
-        val btnCol = LinearLayout(this)
-        btnCol.orientation = LinearLayout.VERTICAL
-        btnCol.gravity = Gravity.CENTER
+        val btnRow = LinearLayout(this)
+        btnRow.orientation = LinearLayout.HORIZONTAL
+        val bl1 = LinearLayout.LayoutParams(0, -2, 1f)
+        bl1.marginEnd = dpi(4f)
+        val bl2 = LinearLayout.LayoutParams(0, -2, 1f)
+        bl2.marginStart = dpi(4f)
+        btnRow.addView(bypassBtn, bl1)
+        btnRow.addView(resetBtn, bl2)
+        col.addView(btnRow, LinearLayout.LayoutParams(-1, -2))
+
+        return page(col)
+    }
+
+    // ----- Cortes de graves e agudos
+
+    private fun buildCutCard(): LinearLayout {
+        val cc = card(this)
+        cc.addView(sectionTitle(this, "Cortes", 0f))
+
+        lowCutSwitch = newSwitch()
+        lowCutSwitch.setOnCheckedChangeListener { _, on ->
+            if (!syncing) { EqState.update { it.lowCutOn = on }; refreshCuts(); afterCut() }
+        }
+        switchRow(cc, "Corte de graves", "Tira os graves abaixo da frequência. Ajuda a proteger o alto-falante do celular.", lowCutSwitch)
+        lowCutKnob = KnobView(this, "Freq", log10(20f), log10(500f), log10(80f), false, 0.005f, false, true) {
+            fmtFreq(10f.pow(it))
+        }
+        lowCutKnob.onChange = { v -> EqState.update { it.lowCutF = 10f.pow(v) }; afterCut() }
+        val lo = cutControls(lowCutKnob) { sl -> EqState.update { it.lowCutSlope = sl }; refreshCuts(); afterCut() }
+        lowCutBox = lo.first
+        lowCutPills = lo.second
+        cc.addView(lowCutBox)
+
+        highCutSwitch = newSwitch()
+        highCutSwitch.setOnCheckedChangeListener { _, on ->
+            if (!syncing) { EqState.update { it.highCutOn = on }; refreshCuts(); afterCut() }
+        }
+        switchRow(cc, "Corte de agudos", "Tira os agudos acima da frequência. Suaviza som muito brilhante ou chiado.", highCutSwitch)
+        highCutKnob = KnobView(this, "Freq", log10(2000f), log10(20000f), log10(16000f), false, 0.005f, false, true) {
+            fmtFreq(10f.pow(it))
+        }
+        highCutKnob.onChange = { v -> EqState.update { it.highCutF = 10f.pow(v) }; afterCut() }
+        val hi = cutControls(highCutKnob) { sl -> EqState.update { it.highCutSlope = sl }; refreshCuts(); afterCut() }
+        highCutBox = hi.first
+        highCutPills = hi.second
+        cc.addView(highCutBox)
+
+        cc.addView(bodyText(this, "O gráfico mostra o corte. O efeito do Android limita a atenuação a cerca de 24 dB.", 12f))
+        return cc
+    }
+
+    /** Knob de frequência ao lado dos botões de inclinação (12 ou 24 dB por oitava). */
+    private fun cutControls(knob: KnobView, onSlope: (Int) -> Unit): Pair<LinearLayout, List<TextView>> {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.addView(knob, LinearLayout.LayoutParams(0, -2, 1f))
+        val colp = LinearLayout.LayoutParams(0, -2, 1f)
+        colp.marginStart = dpi(10f)
+        val pillCol = LinearLayout(this)
+        pillCol.orientation = LinearLayout.VERTICAL
+        val pills = listOf("12 dB/oit", "24 dB/oit").mapIndexed { i, n ->
+            val p = pill(this, n)
+            p.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            p.setPadding(dpi(8f), dpi(8f), dpi(8f), dpi(8f))
+            p.setOnClickListener { onSlope(i) }
+            val lp = LinearLayout.LayoutParams(-1, -2)
+            if (i > 0) lp.topMargin = dpi(6f)
+            pillCol.addView(p, lp)
+            p
+        }
+        row.addView(pillCol, colp)
+        return Pair(row, pills)
+    }
+
+    private fun afterCut() {
+        curve.invalidate()
+        updateAutoPre()
+    }
+
+    private fun refreshCuts() {
+        val s = EqState.s
+        lowCutSwitch.isChecked = s.lowCutOn
+        highCutSwitch.isChecked = s.highCutOn
+        lowCutKnob.value = log10(s.lowCutF)
+        highCutKnob.value = log10(s.highCutF)
+        lowCutBox.visibility = if (s.lowCutOn) View.VISIBLE else View.GONE
+        highCutBox.visibility = if (s.highCutOn) View.VISIBLE else View.GONE
+        for (k in lowCutPills.indices) stylePill(lowCutPills[k], k == s.lowCutSlope)
+        for (k in highCutPills.indices) stylePill(highCutPills[k], k == s.highCutSlope)
+    }
+
+    // ----- Editor de bandas (EQ paramétrico)
+
+    /** Aplica a mudança na banda selecionada e atualiza o que depende dela. */
+    private fun editBand(block: (ParamBand) -> Unit) {
+        val i = curve.selected
+        val list = EqState.s.bands
+        if (i < 0 || i >= list.size) return
+        EqState.update { block(list[i]) }
+        curve.invalidate()
+        updateBandTitle()
+        updatePresetLabel()
+        updateAutoPre()
+    }
+
+    /** Chamado quando o gráfico mexeu numa banda (arrastar ou zerar): salva e atualiza os knobs. */
+    private fun bandEdited() {
+        EqState.update { }
+        val i = curve.selected
+        val list = EqState.s.bands
+        if (i in 0 until list.size) {
+            freqKnob.value = log10(list[i].freq)
+            bandGainKnob.value = list[i].gain
+        }
+        updateBandTitle()
+        updatePresetLabel()
+        updateAutoPre()
+    }
+
+    private fun typeName(t: Int) = when (t) {
+        ParamBand.LOW_SHELF -> "prateleira de graves"
+        ParamBand.HIGH_SHELF -> "prateleira de agudos"
+        else -> "pico"
+    }
+
+    private fun updateBandTitle() {
+        val i = curve.selected
+        val list = EqState.s.bands
+        bandTitle.text = if (i in 0 until list.size) {
+            val rank = list.count { it.freq < list[i].freq } + 1
+            "Banda $rank de ${list.size} \u00B7 ${typeName(list[i].type)}"
+        } else {
+            "Sem bandas"
+        }
+    }
+
+    /** Mostra a banda selecionada nos controles (ou o aviso, se não houver bandas). */
+    private fun refreshBandEditor() {
+        val list = EqState.s.bands
+        var i = curve.selected
+        if (i >= list.size) i = list.size - 1
+        if (list.isNotEmpty() && i < 0) i = 0
+        if (curve.selected != i) curve.selected = i
+        val has = i >= 0
+        bandControls.visibility = if (has) View.VISIBLE else View.GONE
+        bandHint.visibility = if (has) View.GONE else View.VISIBLE
+        delBandBtn.alpha = if (has) 1f else 0.4f
+        if (has) {
+            val b = list[i]
+            freqKnob.value = log10(b.freq)
+            bandGainKnob.value = b.gain
+            qKnob.value = log10(b.q)
+            for (k in typeBtns.indices) stylePill(typeBtns[k], k == b.type)
+        }
+        updateBandTitle()
+    }
+
+    private fun setBandType(t: Int) {
+        editBand { b ->
+            if (b.type != t) {
+                b.q = if (t == ParamBand.PEAK) ParamBand.DEFAULT_Q else ParamBand.SHELF_Q
+                b.type = t
+            }
+        }
+        refreshBandEditor()
+    }
+
+    /** Frequência para uma banda nova: o meio (em escala logarítmica) do maior vão entre as bandas. */
+    private fun nextBandFreq(): Float {
+        val fs = listOf(ParamBand.MIN_F) + EqState.s.bands.map { it.freq }.sorted() + listOf(ParamBand.MAX_F)
+        var best = 1000f
+        var bestGap = -1f
+        for (k in 0 until fs.size - 1) {
+            val gap = ln(fs[k + 1] / fs[k])
+            if (gap > bestGap) {
+                bestGap = gap
+                best = sqrt(fs[k] * fs[k + 1])
+            }
+        }
+        return best.toInt().toFloat()
+    }
+
+    private fun addBand(f: Float, g: Float) {
+        val list = EqState.s.bands
+        if (list.size >= ParamBand.MAX_BANDS) {
+            Toast.makeText(this, "Máximo de ${ParamBand.MAX_BANDS} bandas", Toast.LENGTH_SHORT).show()
+            return
+        }
+        EqState.update { it.bands.add(ParamBand(f.coerceIn(ParamBand.MIN_F, ParamBand.MAX_F), g)) }
+        curve.selected = list.size - 1
+        refreshBandEditor()
+        curve.invalidate()
+        updatePresetLabel()
+        updateAutoPre()
+    }
+
+    private fun removeSelectedBand() {
+        val i = curve.selected
+        if (i < 0 || i >= EqState.s.bands.size) return
+        EqState.update { it.bands.removeAt(i) }
+        refreshBandEditor()
+        curve.invalidate()
+        updatePresetLabel()
+        updateAutoPre()
+    }
+
+    /** Texto do preamp automático: quanto está sendo reduzido agora. */
+    private fun updateAutoPre() {
+        if (!::autoPreDesc.isInitialized) return
+        val s = EqState.s
+        autoPreDesc.text = if (s.autoPreamp) {
+            val d = EqMath.autoPreampDb(s)
+            if (d > -0.05f) "Ligado. Nenhuma redução necessária agora."
+            else String.format(Locale.US, "Ligado. Reduzindo %.1f dB para evitar distorção.", -d)
+        } else {
+            "Quando ligado, baixa o ganho de entrada sozinho ao reforçar muito."
+        }
+    }
+
+    // ----- Presets
+
+    /** Mostra o nome do preset igual aos ajustes atuais, ou "Personalizado". */
+    private fun updatePresetLabel() {
+        if (!::presetBtn.isInitialized) return
+        val name = Presets.current(this, EqState.s)?.name ?: "Personalizado"
+        presetBtn.text = "Preset: $name  \u25BE"
+    }
+
+    /** Janela com cantos arredondados no padrão do app; devolve a janela e a caixa de conteúdo. */
+    private fun newDialogBox(titleText: String): Pair<Dialog, LinearLayout> {
+        val dlg = Dialog(this)
+        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dlg.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.background = rounded(C.BG, 24f, this)
+        box.setPadding(dpi(16f), dpi(18f), dpi(16f), dpi(16f))
+        val title = TextView(this)
+        title.text = titleText
+        title.setTextColor(C.INK)
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        title.typeface = FONT_MEDIUM
+        box.addView(title)
+        val wrap = FrameLayout(this)
+        wrap.setPadding(dpi(16f), dpi(16f), dpi(16f), dpi(16f))
+        wrap.addView(box, FrameLayout.LayoutParams(-1, -2))
+        dlg.setContentView(wrap)
+        dlg.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        return Pair(dlg, box)
+    }
+
+    private fun applyPreset(p: Preset) {
+        EqState.update { p.applyTo(it) }
+        refreshFromState()
+    }
+
+    private fun presetRow(p: Preset, current: Preset?, dlg: Dialog, reopen: () -> Unit): LinearLayout {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        val selected = current != null && current.name == p.name && current.builtIn == p.builtIn
+        row.background =
+            if (selected) rounded(C.CARD2, 14f, this, C.PRI_DK, 2f) else rounded(C.CARD, 14f, this)
+        row.setPadding(dpi(14f), 0, dpi(6f), 0)
+        val name = TextView(this)
+        name.text = p.name
+        name.setTextColor(C.INK)
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        name.typeface = if (selected) FONT_MEDIUM else Typeface.DEFAULT
+        name.maxLines = 1
+        name.ellipsize = android.text.TextUtils.TruncateAt.END
+        row.addView(name, LinearLayout.LayoutParams(0, -2, 1f))
+        if (!p.builtIn) {
+            val del = TextView(this)
+            del.text = "\u2715"
+            del.contentDescription = "Apagar " + p.name
+            del.gravity = Gravity.CENTER
+            del.setTextColor(C.SUB)
+            del.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            del.setOnClickListener {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Apagar preset")
+                    .setMessage("Apagar \"" + p.name + "\"?")
+                    .setPositiveButton("Apagar") { _, _ ->
+                        Presets.delete(this, p.name)
+                        updatePresetLabel()
+                        dlg.dismiss()
+                        reopen()
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+            row.addView(del, LinearLayout.LayoutParams(dpi(44f), dpi(44f)))
+        }
+        row.minimumHeight = dpi(44f)
+        row.setOnClickListener {
+            applyPreset(p)
+            dlg.dismiss()
+        }
+        val lp = LinearLayout.LayoutParams(-1, -2)
+        lp.setMargins(0, dpi(3f), 0, dpi(3f))
+        row.layoutParams = lp
+        return row
+    }
+
+    private fun showPresetList() {
+        val (dlg, box) = newDialogBox("Presets")
+        val current = Presets.current(this, EqState.s)
+        val list = LinearLayout(this)
+        list.orientation = LinearLayout.VERTICAL
+
+        val mine = Presets.listUser(this)
+        if (mine.isNotEmpty()) {
+            list.addView(sectionTitle(this, "MEUS PRESETS", 6f))
+            for (p in mine) list.addView(presetRow(p, current, dlg) { showPresetList() })
+        }
+        list.addView(sectionTitle(this, "PADRÃO", if (mine.isEmpty()) 6f else 14f))
+        for (p in Presets.BUILT_IN) list.addView(presetRow(p, current, dlg) { showPresetList() })
+
+        val scroll = ScrollView(this)
+        scroll.isVerticalScrollBarEnabled = false
+        scroll.addView(list, ViewGroup.LayoutParams(-1, -2))
+        val maxH = (resources.displayMetrics.heightPixels * 0.6f).toInt()
+        box.addView(scroll, LinearLayout.LayoutParams(-1, minOf(maxH, dpi(420f))))
+
+        val save = pill(this, "Salvar o ajuste atual como preset")
+        save.setOnClickListener {
+            dlg.dismiss()
+            showSavePreset()
+        }
+        val slp = LinearLayout.LayoutParams(-1, -2)
+        slp.topMargin = dpi(10f)
+        box.addView(save, slp)
+        dlg.show()
+    }
+
+    private fun showSavePreset() {
+        val (dlg, box) = newDialogBox("Salvar preset")
+        val sub = bodyText(this, "Guarda as bandas do equalizador, o preamp, o Bass e o Treble de agora.", 13f)
+        sub.setPadding(0, dpi(2f), 0, dpi(10f))
+        box.addView(sub)
+
+        val input = EditText(this)
+        input.hint = "Nome do preset"
+        input.setSingleLine()
+        input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        input.filters = arrayOf(InputFilter.LengthFilter(Presets.MAX_NAME))
+        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        input.setTextColor(C.INK)
+        input.setHintTextColor(C.SUB)
+        input.background = rounded(C.CARD, 14f, this)
+        input.setPadding(dpi(14f), dpi(10f), dpi(14f), dpi(10f))
+        box.addView(input, LinearLayout.LayoutParams(-1, -2))
+
+        val ok = pill(this, "Salvar")
+        ok.setOnClickListener {
+            val name = input.text.toString().trim()
+            when {
+                name.isEmpty() ->
+                    Toast.makeText(this, "Digite um nome", Toast.LENGTH_SHORT).show()
+                Presets.isBuiltInName(name) ->
+                    Toast.makeText(this, "Já existe um preset padrão com esse nome", Toast.LENGTH_SHORT).show()
+                else -> {
+                    val replaced = Presets.exists(this, name)
+                    Presets.saveCurrent(this, name, EqState.s)
+                    updatePresetLabel()
+                    Toast.makeText(this, if (replaced) "Preset atualizado" else "Preset salvo", Toast.LENGTH_SHORT).show()
+                    dlg.dismiss()
+                }
+            }
+        }
+        val cancel = pill(this, "Cancelar")
+        cancel.setOnClickListener { dlg.dismiss() }
+        val btns = LinearLayout(this)
+        btns.orientation = LinearLayout.HORIZONTAL
+        val b1 = LinearLayout.LayoutParams(0, -2, 1f)
+        b1.marginEnd = dpi(4f)
+        val b2 = LinearLayout.LayoutParams(0, -2, 1f)
+        b2.marginStart = dpi(4f)
+        btns.addView(cancel, b1)
+        btns.addView(ok, b2)
         val blp = LinearLayout.LayoutParams(-1, -2)
-        blp.bottomMargin = dpi(10f)
-        btnCol.addView(bypassBtn, blp)
-        btnCol.addView(resetBtn, LinearLayout.LayoutParams(-1, -2))
-
-        val kRow = LinearLayout(this)
-        kRow.orientation = LinearLayout.HORIZONTAL
-        kRow.gravity = Gravity.CENTER_VERTICAL
-        kRow.setPadding(0, 0, 0, dpi(4f))
-        kRow.addView(btnCol, LinearLayout.LayoutParams(0, -2, 27f))
-        val k1 = LinearLayout.LayoutParams(0, -2, 36.5f)
-        k1.marginStart = dpi(4f)
-        kRow.addView(bassKnob, k1)
-        val k2 = LinearLayout.LayoutParams(0, -2, 36.5f)
-        k2.marginStart = dpi(4f)
-        kRow.addView(trebleKnob, k2)
-        col.addView(kRow, LinearLayout.LayoutParams(-1, -2))
-
-        return page(col, true)
+        blp.topMargin = dpi(12f)
+        box.addView(btns, blp)
+        dlg.show()
+        input.requestFocus()
+        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
     }
 
     // ----- Aba 2: Compressor
@@ -482,15 +1019,75 @@ class MainActivity : Activity() {
 
         val cCard = card(this, true)
         cCard.addView(sectionTitle(this, "Compressor"))
+        mbSwitch = newSwitch()
+        mbSwitch.setOnCheckedChangeListener { _, on ->
+            if (!syncing) {
+                EqState.update { it.multiband = on }
+                refreshMbUi()
+            }
+        }
+        switchRow(cCard, "Compressor em 3 faixas", "Graves, médios e agudos comprimidos separadamente.", mbSwitch)
         grMeter = GrMeterView(this)
         cCard.addView(grMeter, LinearLayout.LayoutParams(-1, -2))
+        compCurve = CompCurveView(this)
+        val cclp = LinearLayout.LayoutParams(-1, dpi(190f))
+        cclp.topMargin = dpi(10f)
+        cCard.addView(compCurve, cclp)
+        cCard.addView(
+            bodyText(this, "Entrada x saída do compressor (sem o ganho de saída). O ponto é o nível do áudio agora.", 12f).also {
+                it.setPadding(0, dpi(6f), 0, dpi(8f))
+            }
+        )
         attackKnob = knob("Attack", 1f, 200f, 10f, 1f, { String.format(Locale.US, "%.0f ms", it) }) { s, v -> s.attack = v }
         releaseKnob = knob("Release", 10f, 2000f, 120f, 10f, { String.format(Locale.US, "%.0f ms", it) }) { s, v -> s.release = v }
         ratioKnob = knob("Ratio", 1f, 20f, 1f, 0.5f, { if (it <= 1.01f) "Off" else String.format(Locale.US, "%.1f:1", it) }) { s, v -> s.ratio = v }
         thresholdKnob = knob("Threshold", -60f, 0f, -18f, 1f, { String.format(Locale.US, "%.0f dB", it) }) { s, v -> s.threshold = v }
         gainKnob = knob("Gain", -12f, 24f, 0f, 0.5f, { fmtDb(it) + " dB" }) { s, v -> s.gain = v }
-        cCard.addView(weightRow(this, attackKnob, releaseKnob, ratioKnob))
-        cCard.addView(weightRow(this, thresholdKnob, gainKnob))
+        singleBox = LinearLayout(this)
+        singleBox.orientation = LinearLayout.VERTICAL
+        singleBox.addView(weightRow(this, attackKnob, releaseKnob, ratioKnob))
+        singleBox.addView(weightRow(this, thresholdKnob, gainKnob))
+        cCard.addView(singleBox)
+
+        multiBox = LinearLayout(this)
+        multiBox.orientation = LinearLayout.VERTICAL
+        x1Knob = KnobView(this, "Corte 1", log10(60f), log10(1000f), log10(200f), false, 0.005f, false, true) {
+            fmtFreq(10f.pow(it))
+        }
+        x2Knob = KnobView(this, "Corte 2", log10(1000f), log10(12000f), log10(3000f), false, 0.005f, false, true) {
+            fmtFreq(10f.pow(it))
+        }
+        x1Knob.onChange = { v -> setCrossover(0, 10f.pow(v)) }
+        x2Knob.onChange = { v -> setCrossover(1, 10f.pow(v)) }
+        multiBox.addView(weightRow(this, x1Knob, x2Knob))
+
+        val pillRow = LinearLayout(this)
+        pillRow.orientation = LinearLayout.HORIZONTAL
+        mbPills = listOf("Graves", "Médios", "Agudos").mapIndexed { i, n ->
+            val p = pill(this, n)
+            p.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            p.setPadding(dpi(8f), dpi(8f), dpi(8f), dpi(8f))
+            p.setOnClickListener { selBand = i; refreshMbBand() }
+            val lp = LinearLayout.LayoutParams(0, -2, 1f)
+            lp.marginStart = if (i == 0) 0 else dpi(6f)
+            pillRow.addView(p, lp)
+            p
+        }
+        val prl = LinearLayout.LayoutParams(-1, -2)
+        prl.topMargin = dpi(8f)
+        multiBox.addView(pillRow, prl)
+        mbRange = bodyText(this, "", 12f)
+        mbRange.setPadding(0, dpi(6f), 0, 0)
+        multiBox.addView(mbRange)
+
+        mbAtkKnob = mbKnob("Attack", 1f, 200f, 10f, 1f, { String.format(Locale.US, "%.0f ms", it) }) { s, b, v -> s.mbAtk[b] = v }
+        mbRelKnob = mbKnob("Release", 10f, 2000f, 120f, 10f, { String.format(Locale.US, "%.0f ms", it) }) { s, b, v -> s.mbRel[b] = v }
+        mbRatioKnob = mbKnob("Ratio", 1f, 20f, 1f, 0.5f, { if (it <= 1.01f) "Off" else String.format(Locale.US, "%.1f:1", it) }) { s, b, v -> s.mbRatio[b] = v }
+        mbThrKnob = mbKnob("Threshold", -60f, 0f, -18f, 1f, { String.format(Locale.US, "%.0f dB", it) }) { s, b, v -> s.mbThr[b] = v }
+        mbGainKnob = mbKnob("Gain", -12f, 24f, 0f, 0.5f, { fmtDb(it) + " dB" }) { s, b, v -> s.mbGain[b] = v }
+        multiBox.addView(weightRow(this, mbAtkKnob, mbRelKnob, mbRatioKnob))
+        multiBox.addView(weightRow(this, mbThrKnob, mbGainKnob))
+        cCard.addView(multiBox)
         col.addView(cCard)
 
         val oCard = card(this, true)
@@ -531,6 +1128,7 @@ class MainActivity : Activity() {
                 s.gain = 0f
                 s.balance = 0f
                 s.volume = 0f
+                s.resetMultiband()
             }
             refreshFromState()
         }
@@ -542,6 +1140,64 @@ class MainActivity : Activity() {
 
         col.addView(bodyText(this, "O medidor de redução de ganho é uma estimativa calculada a partir do nível do áudio.", 12f))
         return page(col)
+    }
+
+    private fun mbKnob(
+        label: String, min: Float, max: Float, def: Float, step: Float,
+        fmt: (Float) -> String, apply: (EqSettings, Int, Float) -> Unit
+    ): KnobView {
+        val k = KnobView(this, label, min, max, def, false, step, false, false, fmt)
+        k.onChange = { v ->
+            val b = selBand
+            EqState.update { apply(it, b, v) }
+            compCurve.invalidate()
+        }
+        return k
+    }
+
+    /** Muda um dos cortes entre faixas, mantendo os dois separados. */
+    private fun setCrossover(i: Int, f: Float) {
+        EqState.update { s ->
+            if (i == 0) s.x1 = f.coerceIn(60f, minOf(1000f, s.x2 / 1.5f))
+            else s.x2 = f.coerceIn(maxOf(1000f, s.x1 * 1.5f), 12000f)
+        }
+        val s = EqState.s
+        x1Knob.value = log10(s.x1)
+        x2Knob.value = log10(s.x2)
+        updateMbRange()
+    }
+
+    private fun updateMbRange() {
+        val s = EqState.s
+        mbRange.text = when (selBand) {
+            0 -> "Graves: até ${fmtFreq(s.x1)}"
+            1 -> "Médios: de ${fmtFreq(s.x1)} a ${fmtFreq(s.x2)}"
+            else -> "Agudos: acima de ${fmtFreq(s.x2)}"
+        }
+    }
+
+    /** Mostra os controles da faixa escolhida. */
+    private fun refreshMbBand() {
+        val s = EqState.s
+        val b = selBand
+        mbAtkKnob.value = s.mbAtk[b]
+        mbRelKnob.value = s.mbRel[b]
+        mbRatioKnob.value = s.mbRatio[b]
+        mbThrKnob.value = s.mbThr[b]
+        mbGainKnob.value = s.mbGain[b]
+        for (k in mbPills.indices) stylePill(mbPills[k], k == b)
+        updateMbRange()
+        compCurve.band = if (s.multiband) b else -1
+        compCurve.invalidate()
+    }
+
+    /** Alterna entre o compressor de banda larga e o de 3 faixas. */
+    private fun refreshMbUi() {
+        val mb = EqState.s.multiband
+        singleBox.visibility = if (mb) View.GONE else View.VISIBLE
+        multiBox.visibility = if (mb) View.VISIBLE else View.GONE
+        grMeter.visibility = if (mb) View.GONE else View.VISIBLE
+        refreshMbBand()
     }
 
     // ----- Aba 3: Ajustes
@@ -584,8 +1240,141 @@ class MainActivity : Activity() {
         return status
     }
 
+    // ----- Aparência: cor principal e modo claro/escuro
+
+    /** Salva a escolha e recria a tela para repintar tudo com a nova paleta. */
+    private fun applyTheme(accent: Int? = null, dark: Boolean? = null) {
+        if (accent != null) ThemePrefs.saveAccent(this, accent)
+        if (dark != null) ThemePrefs.saveDark(this, dark)
+        recreate()
+    }
+
+    private fun swatch(color: Int, selected: Boolean): FrameLayout {
+        val cell = FrameLayout(this)
+        val dot = View(this)
+        val g = GradientDrawable()
+        g.shape = GradientDrawable.OVAL
+        g.setColor(color)
+        if (selected) g.setStroke(dpi(3f), C.INK) else g.setStroke(dpi(1f), C.LINE)
+        dot.background = g
+        val m = dpi(4f)
+        val dlp = FrameLayout.LayoutParams(-1, -1)
+        dlp.setMargins(m, m, m, m)
+        cell.addView(dot, dlp)
+        if (selected) {
+            val chk = TextView(this)
+            chk.text = "\u2713"
+            chk.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            chk.typeface = Typeface.DEFAULT_BOLD
+            chk.setTextColor(if (isLightColor(color)) 0xFF1B1D16.toInt() else 0xFFFFFFFF.toInt())
+            chk.gravity = Gravity.CENTER
+            cell.addView(chk, FrameLayout.LayoutParams(-1, -1))
+        }
+        cell.contentDescription = "Cor " + ThemePrefs.toHex(color)
+        return cell
+    }
+
+    private fun buildAppearanceCard(): LinearLayout {
+        val a = card(this)
+        a.addView(sectionTitle(this, "Aparência", 0f))
+
+        // claro / escuro
+        a.addView(bodyText(this, "Fundo do app", 15f, C.INK))
+        val modeRow = LinearLayout(this)
+        modeRow.orientation = LinearLayout.HORIZONTAL
+        val lightBtn = pill(this, "Claro")
+        val darkBtn = pill(this, "Escuro")
+        stylePill(lightBtn, !C.DARK)
+        stylePill(darkBtn, C.DARK)
+        lightBtn.setOnClickListener { if (C.DARK) applyTheme(dark = false) }
+        darkBtn.setOnClickListener { if (!C.DARK) applyTheme(dark = true) }
+        val l1 = LinearLayout.LayoutParams(0, -2, 1f)
+        l1.marginEnd = dpi(4f)
+        val l2 = LinearLayout.LayoutParams(0, -2, 1f)
+        l2.marginStart = dpi(4f)
+        modeRow.addView(lightBtn, l1)
+        modeRow.addView(darkBtn, l2)
+        val mlp = LinearLayout.LayoutParams(-1, -2)
+        mlp.topMargin = dpi(8f)
+        mlp.bottomMargin = dpi(14f)
+        a.addView(modeRow, mlp)
+
+        // cor principal
+        a.addView(bodyText(this, "Cor principal", 15f, C.INK))
+        a.addView(bodyText(this, "Os destaques usam essa cor e os cartões, um tom mais leve dela.", 12f))
+
+        val current = ThemePrefs.accent(this) and 0xFFFFFF
+        val grid = LinearLayout(this)
+        grid.orientation = LinearLayout.VERTICAL
+        val perRow = 6
+        var start = 0
+        while (start < ACCENT_PALETTE.size) {
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            for (j in 0 until perRow) {
+                val idx = start + j
+                val lp = LinearLayout.LayoutParams(0, dpi(46f), 1f)
+                if (idx < ACCENT_PALETTE.size) {
+                    val color = ACCENT_PALETTE[idx]
+                    val cell = swatch(color, (color and 0xFFFFFF) == current)
+                    cell.setOnClickListener { applyTheme(accent = color) }
+                    row.addView(cell, lp)
+                } else {
+                    row.addView(View(this), lp)
+                }
+            }
+            grid.addView(row, LinearLayout.LayoutParams(-1, -2))
+            start += perRow
+        }
+        val glp = LinearLayout.LayoutParams(-1, -2)
+        glp.topMargin = dpi(8f)
+        a.addView(grid, glp)
+
+        // código da cor (hex)
+        val input = EditText(this)
+        input.hint = "#B9FC00"
+        input.setText(ThemePrefs.toHex(ThemePrefs.accent(this)))
+        input.setSingleLine()
+        input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        input.filters = arrayOf(InputFilter.LengthFilter(9))
+        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        input.setTextColor(C.INK)
+        input.setHintTextColor(C.SUB)
+        input.background = rounded(C.BG, 14f, this)
+        input.setPadding(dpi(14f), dpi(10f), dpi(14f), dpi(10f))
+        val useBtn = pill(this, "Aplicar")
+        useBtn.setOnClickListener {
+            val c = ThemePrefs.parseHex(input.text.toString())
+            if (c == null) {
+                Toast.makeText(this, "Código inválido. Use 6 dígitos, por exemplo B9FC00", Toast.LENGTH_SHORT).show()
+            } else {
+                applyTheme(accent = c)
+            }
+        }
+        val hexRow = LinearLayout(this)
+        hexRow.orientation = LinearLayout.HORIZONTAL
+        hexRow.gravity = Gravity.CENTER_VERTICAL
+        hexRow.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        val ulp = LinearLayout.LayoutParams(-2, -2)
+        ulp.marginStart = dpi(8f)
+        hexRow.addView(useBtn, ulp)
+        val hlp = LinearLayout.LayoutParams(-1, -2)
+        hlp.topMargin = dpi(10f)
+        a.addView(hexRow, hlp)
+
+        val resetBtn = pill(this, "Restaurar cor padrão")
+        resetBtn.setOnClickListener { applyTheme(accent = ThemePrefs.DEFAULT_ACCENT) }
+        val rlp = LinearLayout.LayoutParams(-1, -2)
+        rlp.topMargin = dpi(8f)
+        a.addView(resetBtn, rlp)
+        return a
+    }
+
     private fun buildSettingsPage(): ScrollView {
         val col = LinearLayout(this)
+
+        col.addView(buildAppearanceCard())
 
         val gCard = card(this)
         gCard.addView(sectionTitle(this, "Geral", 0f))
@@ -615,6 +1404,21 @@ class MainActivity : Activity() {
         switchRow(gCard, "Modo global (experimental)", "Tenta aplicar o efeito a todo o áudio do aparelho. Use só se o modo normal não funcionar.", globalSwitch)
         gCard.addView(bodyText(this, "A última configuração é salva automaticamente.", 12f))
         col.addView(gCard)
+
+        val bkCard = card(this)
+        bkCard.addView(sectionTitle(this, "Backup", 0f))
+        bkCard.addView(bodyText(this, "Salva tudo num arquivo (ajustes, presets, cor e ícone) para usar em outro celular.", 13f))
+        val exportBtn = pill(this, "Exportar configurações")
+        exportBtn.setOnClickListener { startExport() }
+        val importBtn = pill(this, "Importar configurações")
+        importBtn.setOnClickListener { startImport() }
+        val bk1 = LinearLayout.LayoutParams(-1, -2)
+        bk1.topMargin = dpi(10f)
+        bkCard.addView(exportBtn, bk1)
+        val bk2 = LinearLayout.LayoutParams(-1, -2)
+        bk2.topMargin = dpi(6f)
+        bkCard.addView(importBtn, bk2)
+        col.addView(bkCard)
 
         val pCard = card(this)
         pCard.addView(sectionTitle(this, "Permissões", 0f))
@@ -660,8 +1464,8 @@ class MainActivity : Activity() {
     private fun refreshFromState() {
         val s = EqState.s
         syncing = true
-        sliders[0].value = s.preamp
-        for (i in 0 until 10) sliders[i + 1].value = s.bands[i]
+        preampKnob.value = s.preamp
+        autoPreSwitch.isChecked = s.autoPreamp
         bassKnob.value = s.bass
         trebleKnob.value = s.treble
         stylePill(bypassBtn, s.bypass)
@@ -677,11 +1481,19 @@ class MainActivity : Activity() {
         limThrKnob.value = s.limThr
         limRelKnob.value = s.limRel
 
+        refreshCuts()
+        mbSwitch.isChecked = s.multiband
+        x1Knob.value = log10(s.x1)
+        x2Knob.value = log10(s.x2)
         masterSwitch.isChecked = s.master
         autoSwitch.isChecked = s.auto
         globalSwitch.isChecked = s.global
         syncing = false
+        refreshMbUi()
         curve.invalidate()
+        refreshBandEditor()
+        updateAutoPre()
+        updatePresetLabel()
     }
 
     private fun syncService() {
@@ -690,6 +1502,65 @@ class MainActivity : Activity() {
         try {
             if (s.master || s.auto) startForegroundService(i) else stopService(i)
         } catch (_: Exception) { }
+    }
+
+    // ------------------------------------------------------------ backup
+
+    private fun startExport() {
+        val i = Intent(Intent.ACTION_CREATE_DOCUMENT)
+        i.addCategory(Intent.CATEGORY_OPENABLE)
+        i.type = "application/json"
+        i.putExtra(Intent.EXTRA_TITLE, "estilo-audio-backup.json")
+        try {
+            startActivityForResult(i, REQ_EXPORT)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Não foi possível abrir o seletor de arquivos", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun startImport() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+        i.addCategory(Intent.CATEGORY_OPENABLE)
+        i.type = "*/*"
+        try {
+            startActivityForResult(i, REQ_IMPORT)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Não foi possível abrir o seletor de arquivos", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) return
+        if (requestCode == REQ_EXPORT) {
+            try {
+                contentResolver.openOutputStream(uri, "wt")?.use { it.write(Backup.export(this).toByteArray(Charsets.UTF_8)) }
+                Toast.makeText(this, "Configurações exportadas", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                Toast.makeText(this, "Não foi possível salvar o arquivo", Toast.LENGTH_LONG).show()
+            }
+        } else if (requestCode == REQ_IMPORT) {
+            val text = try {
+                contentResolver.openInputStream(uri)?.use { s ->
+                    val bytes = s.readBytes()
+                    if (bytes.size > Backup.MAX_BYTES) null else String(bytes, Charsets.UTF_8)
+                }
+            } catch (_: Exception) { null }
+            if (text == null) {
+                Toast.makeText(this, "Não foi possível ler o arquivo", Toast.LENGTH_LONG).show()
+                return
+            }
+            val err = Backup.import(this, text)
+            if (err != null) {
+                Toast.makeText(this, err, Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Configurações importadas", Toast.LENGTH_SHORT).show()
+                syncService()
+                recreate()   // reaplica o tema e atualiza todas as telas
+            }
+        }
     }
 
     // -------------------------------------------------------- permissões

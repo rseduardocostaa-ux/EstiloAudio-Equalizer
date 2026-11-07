@@ -26,6 +26,8 @@ class AudioEngine {
     private var viz: Visualizer? = null
 
     private var nb = 0
+    private var mbcN = 1          // faixas do compressor que o efeito realmente tem
+    private var mbcReq = false     // se o efeito foi criado pedindo 3 faixas
     private var cutoffs = FloatArray(0)
     private var centers = FloatArray(0)
 
@@ -36,21 +38,27 @@ class AudioEngine {
         release()
         session = id
 
-        for (n in intArrayOf(32, 16, 10)) {
-            try {
-                val cfg = DynamicsProcessing.Config.Builder(
-                    DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
-                    2,
-                    true, n,   // pré-EQ
-                    true, 1,   // MBC (1 banda = compressor de banda larga)
-                    false, 0,  // pós-EQ
-                    true       // limiter
-                ).build()
-                dp = DynamicsProcessing(0, id, cfg)
-                nb = n
-                break
-            } catch (e: Throwable) {
-                dp = null
+        val want3 = EqState.s.multiband
+        mbcReq = want3
+        mbcN = 1
+        outer@ for (m in (if (want3) intArrayOf(3, 1) else intArrayOf(1))) {
+            for (n in intArrayOf(64, 32, 16, 10)) {
+                try {
+                    val cfg = DynamicsProcessing.Config.Builder(
+                        DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
+                        2,
+                        true, n,   // pré-EQ
+                        true, m,   // MBC (1 banda = compressor de banda larga; 3 = graves/médios/agudos)
+                        false, 0,  // pós-EQ
+                        true       // limiter
+                    ).build()
+                    dp = DynamicsProcessing(0, id, cfg)
+                    nb = n
+                    mbcN = m
+                    break@outer
+                } catch (e: Throwable) {
+                    dp = null
+                }
             }
         }
         if (dp != null) {
@@ -104,6 +112,9 @@ class AudioEngine {
         EqState.vizOk = false
         EqState.bars = FloatArray(EqState.BARS)
         EqState.grDb = 0f
+        EqState.peakDb = -90f
+        EqState.inDb = -90f
+        EqState.peakState = 0
         grSmooth = 0f
     }
 
@@ -119,6 +130,8 @@ class AudioEngine {
     }
 
     fun apply(s: EqSettings, active: Boolean) {
+        // trocar entre 1 e 3 faixas exige recriar o efeito
+        if (session >= 0 && s.multiband != mbcReq) attach(session)
         val d = dp
         if (d != null) {
             try {
@@ -148,7 +161,7 @@ class AudioEngine {
     private fun gainDb(x: Float): Float = 20f * log10(max(x, 0.001f))
 
     private fun applyDp(d: DynamicsProcessing, s: EqSettings) {
-        val pre = if (s.bypass) 0f else s.preamp
+        val pre = if (s.bypass) 0f else (s.preamp + if (s.autoPreamp) EqMath.autoPreampDb(s) else 0f).coerceIn(-40f, 20f)
         val bal = s.balance / 100f
         val l = if (bal > 0f) gainDb(1f - bal) else 0f
         val r = if (bal < 0f) gainDb(1f + bal) else 0f
@@ -160,13 +173,26 @@ class AudioEngine {
             d.setPreEqBandAllChannelsTo(i, DynamicsProcessing.EqBand(true, cutoffs[i], g))
         }
 
-        d.setMbcBandAllChannelsTo(
-            0,
-            DynamicsProcessing.MbcBand(
-                true, 20000f, s.attack, s.release, s.ratio, s.threshold,
-                3f, -90f, 1f, 0f, (s.gain + s.volume).coerceIn(-60f, 30f)
+        if (s.multiband && mbcN == 3) {
+            val cuts = floatArrayOf(s.x1, s.x2, 20000f)
+            for (i in 0 until 3) {
+                d.setMbcBandAllChannelsTo(
+                    i,
+                    DynamicsProcessing.MbcBand(
+                        true, cuts[i], s.mbAtk[i], s.mbRel[i], s.mbRatio[i], s.mbThr[i],
+                        3f, -90f, 1f, 0f, (s.mbGain[i] + s.volume).coerceIn(-60f, 30f)
+                    )
+                )
+            }
+        } else {
+            d.setMbcBandAllChannelsTo(
+                0,
+                DynamicsProcessing.MbcBand(
+                    true, 20000f, s.attack, s.release, s.ratio, s.threshold,
+                    3f, -90f, 1f, 0f, (s.gain + s.volume).coerceIn(-60f, 30f)
+                )
             )
-        )
+        }
 
         d.setLimiterAllChannelsTo(
             DynamicsProcessing.Limiter(true, s.limOn, 0, 1f, s.limRel, 10f, s.limThr, 0f)
@@ -209,13 +235,27 @@ class AudioEngine {
         }
         val lvl = if (peak <= 0) -90f else 20f * log10(peak / 128f)
         val s = EqState.s
+        EqState.inDb = lvl
 
         // Estimativa do ganho reduzido (o Android não informa o valor real).
+        // Em 3 faixas não dá para estimar por faixa: considera sem compressão e o maior ganho.
+        val mb = s.multiband && mbcN == 3
+        val gainSum = if (mb) (s.mbGain.maxOrNull() ?: 0f) + s.volume else s.gain + s.volume
         var comp = 0f
-        if (s.ratio > 1f && lvl > s.threshold) comp = (lvl - s.threshold) * (1f - 1f / s.ratio)
-        val outLvl = lvl - comp + s.gain + s.volume
+        if (!mb && s.ratio > 1f && lvl > s.threshold) comp = (lvl - s.threshold) * (1f - 1f / s.ratio)
+        val outLvl = lvl - comp + gainSum
         val lim = if (s.limOn && outLvl > s.limThr) outLvl - s.limThr else 0f
         val target = comp + lim
+
+        // Pico de saída estimado (antes do limiter): nível medido + preamp + ganhos - compressão.
+        val pre = if (s.bypass) 0f else (s.preamp + if (s.autoPreamp) EqMath.autoPreampDb(s) else 0f).coerceIn(-40f, 20f)
+        val est = lvl + pre + gainSum - comp
+        EqState.peakDb = est
+        EqState.peakState = when {
+            est > 0f && !s.limOn -> 2          // passaria de 0 dBFS sem limiter: clipping
+            s.limOn && est > s.limThr -> 1     // o limiter está segurando o pico
+            else -> 0
+        }
 
         val now = SystemClock.uptimeMillis()
         val dt = if (lastWave == 0L) 50f else (now - lastWave).coerceIn(5L, 500L).toFloat()
