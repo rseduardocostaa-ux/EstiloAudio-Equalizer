@@ -11,7 +11,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Slider vertical de -12 a +12 dB: trilho lavanda, linha colorida do zero até a alça
+ * Slider vertical de -12 a +12 dB: trilho verde-claro, linha colorida do zero até a alça
  * (muda de cor com o valor) e alça redonda roxa. Toque duplo zera.
  */
 class LedSlider(ctx: Context, private val label: String, private val highlight: Boolean = false) : View(ctx) {
@@ -79,7 +79,7 @@ class LedSlider(ctx: Context, private val label: String, private val highlight: 
             c.drawLine(cx, y0, cx, y1, p)
         }
 
-        // alça redonda roxa, com sombra suave
+        // alça redonda verde-limão (com contorno verde-escuro), com sombra suave
         val hy = yOf(value)
         val r = dpf(11f)
         p.style = Paint.Style.FILL
@@ -91,6 +91,11 @@ class LedSlider(ctx: Context, private val label: String, private val highlight: 
         c.drawCircle(cx, hy + dpf(1f), r + dpf(1f), p)
         p.color = C.PRI
         c.drawCircle(cx, hy, r, p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dpf(1.5f)
+        p.color = C.PRI_DK
+        c.drawCircle(cx, hy, r - dpf(0.75f), p)
+        p.style = Paint.Style.FILL
 
         // textos
         tp.typeface = FONT_MEDIUM

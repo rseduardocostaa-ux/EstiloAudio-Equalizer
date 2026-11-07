@@ -86,12 +86,17 @@ class KnobView(
             ap.strokeWidth = 9f * k
             ap.color = withAlpha(col, 46)
             c.drawArc(rect, start, sweep, false, ap)
+            if (!dyn) {
+                ap.strokeWidth = 7f * k
+                ap.color = withAlpha(C.PRI_DK, 140)
+                c.drawArc(rect, start, sweep, false, ap)
+            }
             ap.strokeWidth = 4.5f * k
             ap.color = col
             c.drawArc(rect, start, sweep, false, ap)
         }
 
-        // corpo lavanda
+        // corpo verde-claro
         ap.style = Paint.Style.FILL
         ap.color = C.CARD2
         c.drawCircle(cx, cy, 31f * k, ap)

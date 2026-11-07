@@ -3,8 +3,9 @@
 App Android (Kotlin, minSdk 28) com equalizador de 10 bandas, compressor e limiter,
 usando DynamicsProcessing e BassBoost na sessão de áudio do Spotify.
 
-Visual claro estilo Material (fundo lavanda, cartões tonais, roxo como cor de destaque),
-com a logo do dragão e o nome "Estilo Áudio" no cabeçalho.
+Visual claro estilo Material (fundo verde-claro, cartões tonais, verde-limão #B9FC00 como cor de destaque),
+com a bandeira do Brasil e o nome "Estilo Áudio" no cabeçalho. Tocando na bandeira dá para trocar por
+qualquer emoji ou pela logo do dragão (na cor do tema).
 
 ## Como compilar pelo celular (GitHub Actions)
 1. Crie um repositório no GitHub e envie todos os arquivos deste projeto (mantendo as pastas, inclusive `.github/workflows`).

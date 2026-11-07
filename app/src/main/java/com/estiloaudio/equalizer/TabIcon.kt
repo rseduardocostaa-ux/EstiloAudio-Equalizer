@@ -8,7 +8,7 @@ import android.view.View
 
 /**
  * Ícones da barra inferior: 0 = barras (equalizador), 1 = knob (compressor), 2 = linhas (ajustes).
- * A aba ativa ganha uma pílula lavanda atrás do ícone (64 x 38 dp), como no Material 3.
+ * A aba ativa ganha uma pílula verde-clara atrás do ícone (64 x 38 dp), como no Material 3.
  */
 class TabIcon(ctx: Context, private val kind: Int) : View(ctx) {
 
@@ -36,7 +36,7 @@ class TabIcon(ctx: Context, private val kind: Int) : View(ctx) {
             c.drawRoundRect(rect, dpf(16f), dpf(16f), p)
         }
 
-        val col = if (active) C.PRI else C.TABOFF
+        val col = if (active) C.PRI_DK else C.TABOFF
         p.style = Paint.Style.FILL
         p.color = col
         when (kind) {

@@ -72,11 +72,11 @@ class M3Switch(ctx: Context) : View(ctx) {
         rect.set(sw / 2f, sw / 2f, w - sw / 2f, h - sw / 2f)
         c.drawRoundRect(rect, (h - sw) / 2f, (h - sw) / 2f, p)
 
-        // bolinha: pequena e cinza (desligado) -> grande e branca (ligado)
+        // bolinha: pequena e cinza (desligado) -> grande e escura sobre o verde-limão (ligado)
         val cx = dpf(16f) + (dpf(36f) - dpf(16f)) * t
         val r = dpf(8f) + (dpf(12f) - dpf(8f)) * t
         p.style = Paint.Style.FILL
-        p.color = mixColor(C.ZERO, 0xFFFFFFFF.toInt(), t)
+        p.color = mixColor(C.ZERO, C.ON_PRI, t)
         c.drawCircle(cx, h / 2f, r, p)
     }
 }

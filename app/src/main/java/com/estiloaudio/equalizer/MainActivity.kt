@@ -2,8 +2,11 @@ package com.estiloaudio.equalizer
 
 import android.Manifest
 import android.app.Activity
+import android.app.Dialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,11 +16,14 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowInsets
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -136,11 +142,13 @@ class MainActivity : Activity() {
         header.clipToPadding = false
 
         logoView = LogoView(this)
+        logoView.contentDescription = "Trocar o ícone"
+        logoView.setOnClickListener { showLogoPicker() }
         header.addView(logoView, LinearLayout.LayoutParams(-2, -2))
 
         titleView = TextView(this)
         titleView.text = "Estilo Áudio"
-        titleView.setTextColor(C.PRI)
+        titleView.setTextColor(C.PRI_DK)
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
         titleView.typeface = FONT_MEDIUM
         titleView.letterSpacing = 0.01f
@@ -184,7 +192,7 @@ class MainActivity : Activity() {
         for (p in pages) frame.addView(p, FrameLayout.LayoutParams(-1, -1))
         root.addView(frame, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        // barra de abas (pílula lavanda com 3 ícones)
+        // barra de abas (pílula verde-clara com 3 ícones)
         val wrap = LinearLayout(this)
         wrap.setPadding(0, dpi(4f), 0, dpi(6f))
         val bar = LinearLayout(this)
@@ -213,12 +221,113 @@ class MainActivity : Activity() {
         return root
     }
 
-    /** Cabeçalho ligado (roxo) ou desligado (cinza, sem sombra). */
+    /** Seletor do ícone do cabeçalho: bandeira, logo do app (na cor do tema) ou qualquer emoji. */
+    private fun showLogoPicker() {
+        val dlg = Dialog(this)
+        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dlg.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        val current = LogoPrefs.load(this)
+
+        fun choose(k: String) {
+            LogoPrefs.save(this, k)
+            logoView.kind = k
+            dlg.dismiss()
+        }
+
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.background = rounded(C.BG, 24f, this)
+        box.setPadding(dpi(16f), dpi(18f), dpi(16f), dpi(16f))
+
+        val title = TextView(this)
+        title.text = "Ícone do cabeçalho"
+        title.setTextColor(C.INK)
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        title.typeface = FONT_MEDIUM
+        box.addView(title)
+        val sub = bodyText(this, "Toque em um para usar no topo do app.", 13f)
+        sub.setPadding(0, dpi(2f), 0, dpi(10f))
+        box.addView(sub)
+
+        val options = listOf(LogoPrefs.FLAG, LogoPrefs.DRAGON) + LOGO_EMOJIS
+        val grid = LinearLayout(this)
+        grid.orientation = LinearLayout.VERTICAL
+        val perRow = 6
+        var start = 0
+        while (start < options.size) {
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            for (j in 0 until perRow) {
+                val idx = start + j
+                val lp = LinearLayout.LayoutParams(0, dpi(52f), 1f)
+                lp.setMargins(dpi(3f), dpi(3f), dpi(3f), dpi(3f))
+                if (idx < options.size) {
+                    val k = options[idx]
+                    val cell = FrameLayout(this)
+                    cell.background =
+                        if (k == current) rounded(C.CARD2, 14f, this, C.PRI_DK, 2f) else rounded(C.CARD, 14f, this)
+                    cell.contentDescription = when (k) {
+                        LogoPrefs.FLAG -> "Bandeira do Brasil"
+                        LogoPrefs.DRAGON -> "Logo do app"
+                        else -> k
+                    }
+                    cell.addView(LogoView(this, k, 30f), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+                    cell.setOnClickListener { choose(k) }
+                    row.addView(cell, lp)
+                } else {
+                    row.addView(View(this), lp)
+                }
+            }
+            grid.addView(row, LinearLayout.LayoutParams(-1, -2))
+            start += perRow
+        }
+        val scroll = ScrollView(this)
+        scroll.isVerticalScrollBarEnabled = false
+        scroll.addView(grid, ViewGroup.LayoutParams(-1, -2))
+        box.addView(scroll, LinearLayout.LayoutParams(-1, dpi(300f)))
+
+        val input = EditText(this)
+        input.hint = "Ou digite/cole outro emoji"
+        input.setSingleLine()
+        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        input.setTextColor(C.INK)
+        input.setHintTextColor(C.SUB)
+        input.background = rounded(C.CARD, 14f, this)
+        input.setPadding(dpi(14f), dpi(10f), dpi(14f), dpi(10f))
+        val use = pill(this, "Usar")
+        use.setOnClickListener {
+            val g = firstGrapheme(input.text.toString())
+            if (g == null) {
+                Toast.makeText(this, "Digite um emoji primeiro", Toast.LENGTH_SHORT).show()
+            } else {
+                choose(g)
+            }
+        }
+        val inRow = LinearLayout(this)
+        inRow.orientation = LinearLayout.HORIZONTAL
+        inRow.gravity = Gravity.CENTER_VERTICAL
+        inRow.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        val ulp = LinearLayout.LayoutParams(-2, -2)
+        ulp.marginStart = dpi(8f)
+        inRow.addView(use, ulp)
+        val irlp = LinearLayout.LayoutParams(-1, -2)
+        irlp.topMargin = dpi(10f)
+        box.addView(inRow, irlp)
+
+        val wrap = FrameLayout(this)
+        wrap.setPadding(dpi(16f), dpi(16f), dpi(16f), dpi(16f))
+        wrap.addView(box, FrameLayout.LayoutParams(-1, -2))
+        dlg.setContentView(wrap)
+        dlg.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dlg.show()
+    }
+
+    /** Cabeçalho ligado (verde) ou desligado (cinza, sem sombra). */
     private fun applyHeaderStyle(off: Boolean) {
         logoView.off = off
-        titleView.setTextColor(if (off) C.SUB else C.PRI)
-        if (off) titleView.setShadowLayer(0f, 0f, 0f, 0) else titleView.setShadowLayer(dpf(2f), 0f, dpf(1f), 0x596750A4)
-        statusView.setTextColor(if (off) C.SUB else C.PRI)
+        titleView.setTextColor(if (off) C.SUB else C.PRI_DK)
+        if (off) titleView.setShadowLayer(0f, 0f, 0f, 0) else titleView.setShadowLayer(dpf(2f), 0f, dpf(1f), 0x594A6600)
+        statusView.setTextColor(if (off) C.SUB else C.PRI_DK)
         statusView.background = rounded(if (off) C.OFFBG else C.CARD2, 12f, this)
         statusView.setPadding(dpi(10f), dpi(4f), dpi(10f), dpi(4f))
     }
@@ -238,9 +347,10 @@ class MainActivity : Activity() {
         for (k in tabIcons.indices) tabIcons[k].active = (k == i)
     }
 
-    private fun page(content: LinearLayout): ScrollView {
+    private fun page(content: LinearLayout, fill: Boolean = false): ScrollView {
         val sv = ScrollView(this)
         sv.isVerticalScrollBarEnabled = false
+        sv.isFillViewport = fill
         content.orientation = LinearLayout.VERTICAL
         content.setPadding(0, 0, 0, dpi(12f))
         sv.addView(content, ViewGroup.LayoutParams(-1, -2))
@@ -251,8 +361,9 @@ class MainActivity : Activity() {
 
     private fun buildEqPage(): ScrollView {
         val col = LinearLayout(this)
+        col.orientation = LinearLayout.VERTICAL
 
-        // sliders (cartão lavanda)
+        // sliders (cartão verde-claro)
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         val labels = listOf("Preamp", "31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K")
@@ -271,12 +382,13 @@ class MainActivity : Activity() {
             }
             list.add(sl)
             val w = if (i == 0) 1.5f else 1f
-            row.addView(sl, LinearLayout.LayoutParams(0, dpi(270f), w))
+            row.addView(sl, LinearLayout.LayoutParams(0, -1, w))
             if (i == 0) {
                 val div = View(this)
                 div.setBackgroundColor(C.LINE)
-                val lp = LinearLayout.LayoutParams(dpi(1f), dpi(218f))
+                val lp = LinearLayout.LayoutParams(dpi(1f), -1)
                 lp.topMargin = dpi(6f)
+                lp.bottomMargin = dpi(46f)
                 lp.marginStart = dpi(2f)
                 lp.marginEnd = dpi(2f)
                 row.addView(div, lp)
@@ -286,8 +398,10 @@ class MainActivity : Activity() {
         val sliderCard = LinearLayout(this)
         sliderCard.background = rounded(C.CARD, 16f, this)
         sliderCard.setPadding(0, dpi(6f), 0, 0)
-        sliderCard.addView(row, LinearLayout.LayoutParams(-1, -2))
-        col.addView(sliderCard, LinearLayout.LayoutParams(-1, -2))
+        sliderCard.minimumHeight = dpi(270f)
+        sliderCard.addView(row, LinearLayout.LayoutParams(-1, -1))
+        // os sliders ocupam a altura que sobra na tela (como na prévia)
+        col.addView(sliderCard, LinearLayout.LayoutParams(-1, 0, 1f))
 
         // painel: espectro (barras) + curva por cima
         val panel = FrameLayout(this)
@@ -347,9 +461,9 @@ class MainActivity : Activity() {
         val k2 = LinearLayout.LayoutParams(0, -2, 36.5f)
         k2.marginStart = dpi(4f)
         kRow.addView(trebleKnob, k2)
-        col.addView(kRow)
+        col.addView(kRow, LinearLayout.LayoutParams(-1, -2))
 
-        return page(col)
+        return page(col, true)
     }
 
     // ----- Aba 2: Compressor

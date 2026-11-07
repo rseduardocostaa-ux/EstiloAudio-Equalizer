@@ -23,7 +23,7 @@ class SpectrumView(ctx: Context) : View(ctx) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         bar.shader = LinearGradient(
             0f, h - dpf(20f), 0f, dpf(24f),
-            0x0D6750A4, 0x526750A4,
+            0x0D8DB600, 0x668DB600,
             Shader.TileMode.CLAMP
         )
     }
@@ -48,7 +48,7 @@ class SpectrumView(ctx: Context) : View(ctx) {
         val span = base - top
 
         var any = false
-        pk.color = 0x736750A4
+        pk.color = 0x994A6600.toInt()
         for (i in 0 until n) {
             val f0 = 31.25f * 2f.pow(9f * i / n)
             val f1 = 31.25f * 2f.pow(9f * (i + 1) / n)

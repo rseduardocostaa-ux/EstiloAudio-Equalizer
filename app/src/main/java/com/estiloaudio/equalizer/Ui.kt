@@ -15,23 +15,25 @@ import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.roundToInt
 
-/** Paleta clara estilo Material (fundo lavanda, cartões tonais, roxo como cor de destaque). */
+/** Paleta clara estilo Material (fundo verde-claro, cartões tonais, verde-limão #B9FC00 como cor de destaque). */
 object C {
-    const val BG = 0xFFFEF7FF.toInt()
-    const val CARD = 0xFFF3EDF7.toInt()
-    const val CARD2 = 0xFFE8DEF8.toInt()
-    const val INK = 0xFF1D1B20.toInt()
-    const val SUB = 0xFF605D66.toInt()
-    const val LINE = 0xFFCAC4D0.toInt()
-    const val PRI = 0xFF6750A4.toInt()
-    const val PANEL = 0xFFEEF1F7.toInt()
+    const val BG = 0xFFFBFDF2.toInt()
+    const val CARD = 0xFFF1F5E2.toInt()
+    const val CARD2 = 0xFFE3EDC6.toInt()
+    const val INK = 0xFF1B1D16.toInt()
+    const val SUB = 0xFF5B6050.toInt()
+    const val LINE = 0xFFC8CFB6.toInt()
+    const val PRI = 0xFFB9FC00.toInt()        // destaque (preenchimentos: alças, arcos, interruptor)
+    const val PRI_DK = 0xFF4A6600.toInt()     // verde-escuro: textos e ícones do destaque sobre fundo claro
+    const val ON_PRI = 0xFF1B2600.toInt()     // texto/ícone sobre o verde-limão
+    const val PANEL = 0xFFEEF2E4.toInt()
     const val SLATE = 0xFF4F5D70.toInt()
-    const val TRACK = 0xFFE0D8EA.toInt()
-    const val TICK = 0xFFCFC6DA.toInt()
-    const val ZERO = 0xFF79747E.toInt()
-    const val OFFBG = 0xFFE6E0E9.toInt()
-    const val TABOFF = 0xFF49454F.toInt()
-    const val LEDOFF = 0xFFE6E0E9.toInt()
+    const val TRACK = 0xFFDDE5CB.toInt()
+    const val TICK = 0xFFCDD6BB.toInt()
+    const val ZERO = 0xFF787D6C.toInt()
+    const val OFFBG = 0xFFE5E9DB.toInt()
+    const val TABOFF = 0xFF45493C.toInt()
+    const val LEDOFF = 0xFFE5E9DB.toInt()
 
     const val ACC = 0xFF00E676.toInt()     // verde (medidor e sliders)
     const val CYAN = 0xFF26C6DA.toInt()
@@ -107,7 +109,7 @@ fun card(ctx: Context, flat: Boolean = false): LinearLayout {
 fun sectionTitle(ctx: Context, text: String, topDp: Float = 16f): TextView {
     val t = TextView(ctx)
     t.text = text
-    t.setTextColor(C.PRI)
+    t.setTextColor(C.PRI_DK)
     t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
     t.letterSpacing = 0.06f
     t.typeface = Typeface.DEFAULT_BOLD
@@ -124,7 +126,7 @@ fun bodyText(ctx: Context, text: String, sizeSp: Float = 13f, color: Int = C.SUB
     return t
 }
 
-/** Botão em forma de pílula (tom lavanda). */
+/** Botão em forma de pílula (tom verde-claro). */
 fun pill(ctx: Context, text: String): TextView {
     val t = TextView(ctx)
     t.text = text
@@ -140,10 +142,10 @@ fun stylePill(t: TextView, on: Boolean) {
     val ctx = t.context
     if (on) {
         t.background = rounded(C.PRI, 20f, ctx)
-        t.setTextColor(0xFFFFFFFF.toInt())
+        t.setTextColor(C.ON_PRI)
     } else {
         t.background = rounded(C.CARD2, 20f, ctx)
-        t.setTextColor(C.PRI)
+        t.setTextColor(C.PRI_DK)
     }
 }
 
